@@ -1,0 +1,27 @@
+appId: xyz.icsops.quill
+productName: Quill
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Quill
+asar: true
+publish:
+  provider: github
+  owner: blakestone-x
+  repo: quill
+  releaseType: release

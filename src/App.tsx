@@ -5,23 +5,38 @@ import SplitLayout from './components/SplitLayout';
 import AgentPanel from './components/AgentPanel';
 import SearchOverlay from './components/SearchOverlay';
 import UpdateBanner from './components/UpdateBanner';
-import type { DragPayload, DropEdge, Layout, Note, Pane, PaneMode, SplitMode } from './types';
+import StartScreen from './components/StartScreen';
+import type {
+  DragPayload,
+  DropEdge,
+  Layout,
+  Note,
+  Pane,
+  PaneMode,
+  SplitMode
+} from './types';
+import type { ChatMessage } from './lib/agent';
+import * as storage from './lib/storage';
+import { pushNoteAsSessionLog, pushNoteAsTemplate } from './lib/cartograph';
 
-const WELCOME = `Welcome to Quill.
+const WELCOME = `Welcome to Quill v1.
+
+This note and every other note you write is stored as a standalone .md file in %APPDATA%\\Quill\\notes.
 
 Quick tour:
   · Pin (top bar) keeps Quill floating above everything. Global hotkey Ctrl+Shift+Q shows/hides from anywhere.
-  · Three split icons: vertical (side-by-side), horizontal (stacked), grid (2x2).
-  · Each pane has its own tabs. Drag tabs to reorder them, drag across panes, or drag to the edge of any pane to split it.
-  · Right-click a tab for a color. Eye icon toggles markdown preview per pane.
+  · Three split icons: vertical, horizontal, and 2x2 grid. Drag tabs to edges to split.
+  · Right-click a tab for colors + pin. Pinned tabs stick left.
+  · Database icon in the title bar pushes the current note to Cartograph — pick "session" for memory/working or "template" for memory/procedural (curated prompts).
   · Inline math: type "150+200+50=" and it resolves to "= 400".
-  · Sparkle icon opens the agent — paste your Anthropic key once, responses stream live.
+  · Sparkle icon opens the agent; your conversation persists per-note. Select + copy works now.
+  · Ctrl+F searches everything — note titles, bodies, and agent conversations.
 
 Shortcuts:
   Ctrl+N     new note             Ctrl+\\       vertical split
   Ctrl+W     close note           Ctrl+-       horizontal split
-  Ctrl+P     pin window           Ctrl+G       toggle 2x2 grid
-  Ctrl+F     search all notes     Ctrl+K       agent panel
+  Ctrl+P     pin window           Ctrl+G       2x2 grid
+  Ctrl+F     search everything    Ctrl+K       agent panel
   Ctrl+Shift+Q  summon from any app
   Ctrl+Shift+I  open devtools
 
@@ -48,58 +63,79 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scrollSignals, setScrollSignals] = useState<Record<string, ScrollSignal>>({});
+  const [agentHistory, setAgentHistory] = useState<Record<string, ChatMessage[]>>({});
+  const [cartographAvailable, setCartographAvailable] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
   const loadedRef = useRef(false);
+  const layoutRef = useRef(layout);
+  const writeQueueRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const agentLogWriteQueueRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
 
   useEffect(() => {
     (async () => {
-      const [savedNotes, savedPanes, savedLayout, savedSplit, savedV, savedH, savedAgentWidth, pinState] =
-        await Promise.all([
-          window.quill.getStore<Note[]>('notes'),
-          window.quill.getStore<Pane[]>('panes'),
-          window.quill.getStore<Layout>('layout'),
-          window.quill.getStore<SplitMode>('splitMode'),
-          window.quill.getStore<number>('vRatio'),
-          window.quill.getStore<number>('hRatio'),
-          window.quill.getStore<number>('agentWidth'),
-          window.quill.isAlwaysOnTop()
-        ]);
+      const [settings, pinState, cartoAvail] = await Promise.all([
+        window.quill.allSettings(),
+        window.quill.isAlwaysOnTop(),
+        window.quill.cartographAvailable()
+      ]);
+      setCartographAvailable(cartoAvail);
 
-      let initialNotes: Note[] = [];
+      const loadedNotes = await storage.loadAllNotes();
+
+      const loadedAgentHistory: Record<string, ChatMessage[]> = {};
+      for (const n of loadedNotes) {
+        const log = await storage.readAgentLog(n.id);
+        if (log.length > 0) loadedAgentHistory[n.id] = log;
+      }
+
+      let initialNotes = loadedNotes;
       let initialPanes: Pane[] = [];
-      let initialLayout: Layout = 'single';
 
-      if (savedNotes && savedNotes.length > 0) {
-        initialNotes = savedNotes;
-        if (savedPanes && savedPanes.length > 0) {
-          initialPanes = migratePanes(savedPanes, savedNotes);
-        } else {
-          initialPanes = [
-            {
-              id: nanoid(),
-              noteIds: savedNotes.map((n) => n.id),
-              activeNoteId: savedNotes[0].id,
-              mode: 'edit'
-            }
-          ];
-        }
-        initialLayout = migrateLayout(savedLayout, savedSplit, initialPanes.length);
-      } else {
+      const savedPanes = settings['panes'] as Pane[] | undefined;
+      const savedLayout = settings['layout'] as Layout | undefined;
+      const savedSplit = settings['splitMode'] as SplitMode | undefined;
+      const savedV = settings['vRatio'] as number | undefined;
+      const savedH = settings['hRatio'] as number | undefined;
+      const savedAgentWidth = settings['agentWidth'] as number | undefined;
+
+      if (loadedNotes.length === 0) {
         const welcomeNote: Note = {
-          id: nanoid(),
+          id: nanoid(10),
           title: 'Welcome',
           content: WELCOME,
           createdAt: Date.now(),
-          updatedAt: Date.now()
+          updatedAt: Date.now(),
+          kind: 'note'
         };
+        await storage.writeNote(welcomeNote);
         initialNotes = [welcomeNote];
         initialPanes = [
           { id: nanoid(), noteIds: [welcomeNote.id], activeNoteId: welcomeNote.id, mode: 'edit' }
         ];
+      } else if (savedPanes && savedPanes.length > 0) {
+        initialPanes = migratePanes(savedPanes, loadedNotes);
+      } else {
+        initialPanes = [
+          {
+            id: nanoid(),
+            noteIds: loadedNotes.map((n) => n.id),
+            activeNoteId: loadedNotes[0].id,
+            mode: 'edit'
+          }
+        ];
       }
+
+      const resolvedLayout = migrateLayout(savedLayout, savedSplit, initialPanes.length);
 
       setNotes(initialNotes);
       setPanes(initialPanes);
-      setLayout(initialLayout);
+      setAgentHistory(loadedAgentHistory);
+      setLayout(resolvedLayout);
       if (typeof savedV === 'number') setVRatio(savedV);
       if (typeof savedH === 'number') setHRatio(savedH);
       if (typeof savedAgentWidth === 'number') setAgentWidth(savedAgentWidth);
@@ -109,10 +145,10 @@ export default function App() {
     })();
   }, []);
 
+  // Persist settings (excluding notes — those go to .md files)
   useEffect(() => {
     if (!loadedRef.current) return;
     const t = setTimeout(() => {
-      window.quill.setStore('notes', notes);
       window.quill.setStore('panes', panes);
       window.quill.setStore('layout', layout);
       window.quill.setStore('vRatio', vRatio);
@@ -120,17 +156,46 @@ export default function App() {
       window.quill.setStore('agentWidth', agentWidth);
     }, 250);
     return () => clearTimeout(t);
-  }, [notes, panes, layout, vRatio, hRatio, agentWidth]);
+  }, [panes, layout, vRatio, hRatio, agentWidth]);
+
+  // Queue per-note .md writes when a note changes
+  const queueWriteNote = useCallback((note: Note) => {
+    const queue = writeQueueRef.current;
+    const existing = queue.get(note.id);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      storage.writeNote(note).catch((e) => console.error('writeNote failed', e));
+      queue.delete(note.id);
+    }, 300);
+    queue.set(note.id, timer);
+  }, []);
+
+  const queueWriteAgentLog = useCallback((noteId: string, noteTitle: string, messages: ChatMessage[]) => {
+    const queue = agentLogWriteQueueRef.current;
+    const existing = queue.get(noteId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      storage.writeAgentLog(noteId, noteTitle, messages).catch((e) =>
+        console.error('writeAgentLog failed', e)
+      );
+      queue.delete(noteId);
+    }, 400);
+    queue.set(noteId, timer);
+  }, []);
 
   const createNote = useCallback((paneId?: string) => {
     const note: Note = {
-      id: nanoid(),
-      title: 'Untitled',
+      id: nanoid(10),
+      title: '',
       content: '',
       createdAt: Date.now(),
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      kind: 'note'
     };
-    setNotes((prev) => [...prev, note]);
+    setNotes((prev) => {
+      queueWriteNote(note);
+      return [...prev, note];
+    });
     setPanes((prev) => {
       if (prev.length === 0) {
         return [{ id: nanoid(), noteIds: [note.id], activeNoteId: note.id, mode: 'edit' }];
@@ -142,17 +207,45 @@ export default function App() {
           : p
       );
     });
-  }, []);
+  }, [queueWriteNote]);
 
-  const updateNote = useCallback((id: string, updates: Partial<Note>) => {
-    setNotes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n))
-    );
-  }, []);
+  const updateNote = useCallback(
+    (id: string, updates: Partial<Note>) => {
+      setNotes((prev) => {
+        const next = prev.map((n) =>
+          n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n
+        );
+        const updated = next.find((n) => n.id === id);
+        if (updated) queueWriteNote(updated);
+        return next;
+      });
+    },
+    [queueWriteNote]
+  );
 
-  const colorNote = useCallback((id: string, color: string | undefined) => {
-    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, color } : n)));
-  }, []);
+  const colorNote = useCallback(
+    (id: string, color: string | undefined) => {
+      setNotes((prev) => {
+        const next = prev.map((n) => (n.id === id ? { ...n, color } : n));
+        const updated = next.find((n) => n.id === id);
+        if (updated) queueWriteNote(updated);
+        return next;
+      });
+    },
+    [queueWriteNote]
+  );
+
+  const togglePinNote = useCallback(
+    (id: string) => {
+      setNotes((prev) => {
+        const next = prev.map((n) => (n.id === id ? { ...n, pinned: !n.pinned } : n));
+        const updated = next.find((n) => n.id === id);
+        if (updated) queueWriteNote(updated);
+        return next;
+      });
+    },
+    [queueWriteNote]
+  );
 
   const deleteNoteGlobal = useCallback((noteId: string) => {
     setNotes((prev) => {
@@ -168,12 +261,14 @@ export default function App() {
         }));
         if (next.length === 0) {
           const replacement: Note = {
-            id: nanoid(),
-            title: 'Untitled',
+            id: nanoid(10),
+            title: '',
             content: '',
             createdAt: Date.now(),
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            kind: 'note'
           };
+          storage.writeNote(replacement).catch(() => undefined);
           updated = updated.map((p, i) =>
             i === 0 ? { ...p, noteIds: [replacement.id], activeNoteId: replacement.id } : p
           );
@@ -183,6 +278,12 @@ export default function App() {
         return updated;
       });
       return next;
+    });
+    storage.deleteNote(noteId).catch(() => undefined);
+    setAgentHistory((prev) => {
+      if (!prev[noteId]) return prev;
+      const { [noteId]: _, ...rest } = prev;
+      return rest;
     });
   }, []);
 
@@ -201,9 +302,7 @@ export default function App() {
           };
         })
       );
-      if (!existsElsewhere) {
-        deleteNoteGlobal(noteId);
-      }
+      if (!existsElsewhere) deleteNoteGlobal(noteId);
     },
     [panes, deleteNoteGlobal]
   );
@@ -217,7 +316,12 @@ export default function App() {
   }, []);
 
   const reorderInPane = useCallback(
-    (paneId: string, fromNoteId: string, toNoteId: string | null, side: 'before' | 'after' | 'end') => {
+    (
+      paneId: string,
+      fromNoteId: string,
+      toNoteId: string | null,
+      side: 'before' | 'after' | 'end'
+    ) => {
       setPanes((prev) =>
         prev.map((p) => {
           if (p.id !== paneId) return p;
@@ -226,7 +330,8 @@ export default function App() {
           if (side === 'end' || toNoteId === null) insertAt = filtered.length;
           else {
             const targetIdx = filtered.indexOf(toNoteId);
-            insertAt = targetIdx === -1 ? filtered.length : side === 'before' ? targetIdx : targetIdx + 1;
+            insertAt =
+              targetIdx === -1 ? filtered.length : side === 'before' ? targetIdx : targetIdx + 1;
           }
           const next = [...filtered];
           next.splice(insertAt, 0, fromNoteId);
@@ -238,7 +343,12 @@ export default function App() {
   );
 
   const moveBetweenPanes = useCallback(
-    (payload: DragPayload, toPaneId: string, toNoteId: string | null, side: 'before' | 'after' | 'end') => {
+    (
+      payload: DragPayload,
+      toPaneId: string,
+      toNoteId: string | null,
+      side: 'before' | 'after' | 'end'
+    ) => {
       setPanes((prev) =>
         prev.map((p) => {
           if (p.id === payload.fromPaneId && p.id !== toPaneId) {
@@ -269,49 +379,42 @@ export default function App() {
     []
   );
 
-  const applyLayout = useCallback(
-    (target: Layout) => {
-      setPanes((currentPanes) => {
-        const max = MAX_PANES[target];
-        const current = currentPanes.length;
-        if (current === max) return currentPanes;
+  const applyLayout = useCallback((target: Layout) => {
+    setPanes((currentPanes) => {
+      const max = MAX_PANES[target];
+      const current = currentPanes.length;
+      if (current === max) return currentPanes;
 
-        if (current < max) {
-          const extra: Pane[] = [];
-          for (let i = current; i < max; i++) {
-            extra.push({
-              id: nanoid(),
-              noteIds: [...(currentPanes[0]?.noteIds ?? [])],
-              activeNoteId: currentPanes[0]?.activeNoteId ?? null,
-              mode: 'edit'
-            });
-          }
-          return [...currentPanes, ...extra];
+      if (current < max) {
+        const extra: Pane[] = [];
+        for (let i = current; i < max; i++) {
+          extra.push({
+            id: nanoid(),
+            noteIds: [...(currentPanes[0]?.noteIds ?? [])],
+            activeNoteId: currentPanes[0]?.activeNoteId ?? null,
+            mode: 'edit'
+          });
         }
+        return [...currentPanes, ...extra];
+      }
 
-        // Shrinking — keep first `max` panes but merge discarded panes' exclusive notes into pane 0.
-        const kept = currentPanes.slice(0, max);
-        const dropped = currentPanes.slice(max);
-        const coveredElsewhere = new Set(kept.flatMap((p) => p.noteIds));
-        const orphans: string[] = [];
-        for (const p of dropped) {
-          for (const id of p.noteIds) {
-            if (!coveredElsewhere.has(id) && !orphans.includes(id)) orphans.push(id);
-          }
-        }
-        if (orphans.length === 0) return kept;
-        const firstPane = kept[0];
-        kept[0] = {
-          ...firstPane,
-          noteIds: [...firstPane.noteIds, ...orphans],
-          activeNoteId: firstPane.activeNoteId ?? orphans[0]
-        };
-        return kept;
-      });
-      setLayout(target);
-    },
-    []
-  );
+      const kept = currentPanes.slice(0, max);
+      const dropped = currentPanes.slice(max);
+      const covered = new Set(kept.flatMap((p) => p.noteIds));
+      const orphans: string[] = [];
+      for (const p of dropped)
+        for (const id of p.noteIds) if (!covered.has(id) && !orphans.includes(id)) orphans.push(id);
+      if (orphans.length === 0) return kept;
+      const firstPane = kept[0];
+      kept[0] = {
+        ...firstPane,
+        noteIds: [...firstPane.noteIds, ...orphans],
+        activeNoteId: firstPane.activeNoteId ?? orphans[0]
+      };
+      return kept;
+    });
+    setLayout(target);
+  }, []);
 
   const toggleLayout = useCallback(
     (target: Layout) => {
@@ -331,8 +434,6 @@ export default function App() {
     [applyLayout]
   );
 
-  // Split a target pane by dropping a tab onto its edge.
-  // Promotes the layout: single → v/h, or v/h → grid.
   const dropOnEdge = useCallback(
     (payload: DragPayload, targetPaneIdx: number, edge: DropEdge) => {
       if (edge === 'center') return;
@@ -392,7 +493,6 @@ export default function App() {
                 : [working[0], emptyPane(), working[1], newPane];
           }
         } else {
-          // Grid layout or unsupported edge — fall back to simple move.
           return working.map((p, i) =>
             i === targetPaneIdx
               ? {
@@ -404,20 +504,12 @@ export default function App() {
           );
         }
 
-        if (nextLayout !== currentLayout) {
-          queueMicrotask(() => setLayout(nextLayout));
-        }
+        if (nextLayout !== currentLayout) queueMicrotask(() => setLayout(nextLayout));
         return nextPanes;
       });
     },
     []
   );
-
-  // Ratio refs to avoid stale closures
-  const layoutRef = useRef(layout);
-  useEffect(() => {
-    layoutRef.current = layout;
-  }, [layout]);
 
   const togglePin = useCallback(async () => {
     const next = !pinned;
@@ -457,6 +549,61 @@ export default function App() {
       [noteId]: { position, token: (prev[noteId]?.token ?? 0) + 1 }
     }));
   }, []);
+
+  const updateAgentMessages = useCallback(
+    (noteId: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+      setAgentHistory((prev) => {
+        const current = prev[noteId] ?? [];
+        const next = updater(current);
+        const note = notesRef.current.find((n) => n.id === noteId);
+        queueWriteAgentLog(noteId, note?.title ?? 'Untitled', next);
+        return { ...prev, [noteId]: next };
+      });
+    },
+    [queueWriteAgentLog]
+  );
+
+  const notesRef = useRef(notes);
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  const clearAgentMessages = useCallback(
+    (noteId: string) => {
+      setAgentHistory((prev) => {
+        const { [noteId]: _, ...rest } = prev;
+        return rest;
+      });
+      const note = notesRef.current.find((n) => n.id === noteId);
+      queueWriteAgentLog(noteId, note?.title ?? 'Untitled', []);
+    },
+    [queueWriteAgentLog]
+  );
+
+  const flashToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const pushSession = useCallback(async () => {
+    const first = panes[0];
+    const noteId = first?.activeNoteId;
+    if (!noteId) return;
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    const result = await pushNoteAsSessionLog(note, agentHistory[note.id] ?? []);
+    flashToast(result.ok ? `Pushed to Cartograph working tier` : `Push failed: ${result.reason}`);
+  }, [panes, notes, agentHistory]);
+
+  const pushTemplate = useCallback(async () => {
+    const first = panes[0];
+    const noteId = first?.activeNoteId;
+    if (!noteId) return;
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    const result = await pushNoteAsTemplate(note);
+    flashToast(result.ok ? `Saved template to procedural tier` : `Save failed: ${result.reason}`);
+  }, [panes, notes]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -508,11 +655,29 @@ export default function App() {
   }, [createNote, closeActiveNote, togglePin, toggleAgent, toggleLayout]);
 
   const activeNote = notes.find((n) => n.id === panes[0]?.activeNoteId) ?? notes[0] ?? null;
+  const activeMessages = activeNote ? agentHistory[activeNote.id] ?? [] : [];
+
+  const shouldShowStartScreen =
+    activeNote !== null &&
+    !activeNote.title.trim() &&
+    !activeNote.content.trim() &&
+    layout === 'single';
+
+  const selectAnyNote = useCallback((noteId: string) => {
+    setPanes((prev) => {
+      if (prev.length === 0) return prev;
+      const first = prev[0];
+      const noteIds = first.noteIds.includes(noteId) ? first.noteIds : [...first.noteIds, noteId];
+      return prev.map((p, i) =>
+        i === 0 ? { ...p, noteIds, activeNoteId: noteId } : p
+      );
+    });
+  }, []);
 
   if (!loaded) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-ink-900 text-paper-200 text-sm font-mono">
-        loading…
+        loading notes…
       </div>
     );
   }
@@ -528,35 +693,54 @@ export default function App() {
         agentOpen={agentOpen}
         onToggleAgent={toggleAgent}
         onSearch={() => setSearchOpen(true)}
+        onPushSession={pushSession}
+        onPushTemplate={pushTemplate}
+        cartographAvailable={cartographAvailable}
       />
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 min-w-0 overflow-hidden">
-          <SplitLayout
-            layout={layout}
-            panes={panes}
-            notes={notes}
-            vRatio={vRatio}
-            hRatio={hRatio}
-            onSetVRatio={setVRatio}
-            onSetHRatio={setHRatio}
-            onSelectNote={selectNoteInPane}
-            onUpdateNote={updateNote}
-            onCreateNote={createNote}
-            onDeleteNote={deleteFromPane}
-            onColorNote={colorNote}
-            onReorderInPane={reorderInPane}
-            onMoveBetweenPanes={moveBetweenPanes}
-            onSetPaneMode={setPaneMode}
-            onDropOnEdge={dropOnEdge}
-            scrollSignals={scrollSignals}
-          />
+          {shouldShowStartScreen ? (
+            <StartScreenWrapper
+              allNotes={notes}
+              activeNote={activeNote}
+              onSelectNote={selectAnyNote}
+              onUpdateNote={updateNote}
+              onSearch={() => setSearchOpen(true)}
+              onCreateBlank={() => createNote()}
+              cartographAvailable={cartographAvailable}
+            />
+          ) : (
+            <SplitLayout
+              layout={layout}
+              panes={panes}
+              notes={notes}
+              vRatio={vRatio}
+              hRatio={hRatio}
+              onSetVRatio={setVRatio}
+              onSetHRatio={setHRatio}
+              onSelectNote={selectNoteInPane}
+              onUpdateNote={updateNote}
+              onCreateNote={createNote}
+              onDeleteNote={deleteFromPane}
+              onColorNote={colorNote}
+              onTogglePinNote={togglePinNote}
+              onReorderInPane={reorderInPane}
+              onMoveBetweenPanes={moveBetweenPanes}
+              onSetPaneMode={setPaneMode}
+              onDropOnEdge={dropOnEdge}
+              scrollSignals={scrollSignals}
+            />
+          )}
         </div>
-        {agentOpen && (
+        {agentOpen && activeNote && (
           <AgentPanel
             width={agentWidth}
             onResize={setAgentWidth}
-            context={activeNote?.content ?? ''}
-            contextTitle={activeNote?.title ?? ''}
+            context={activeNote.content}
+            contextTitle={activeNote.title}
+            messages={activeMessages}
+            onChangeMessages={(updater) => updateAgentMessages(activeNote.id, updater)}
+            onClearMessages={() => clearAgentMessages(activeNote.id)}
             onClose={toggleAgent}
           />
         )}
@@ -565,10 +749,60 @@ export default function App() {
       {searchOpen && (
         <SearchOverlay
           notes={notes}
-          onPick={(hit) => jumpToHit(hit.noteId, hit.position)}
+          agentLogs={agentHistory}
+          onPick={(hit) => {
+            if (hit.field === 'agent') {
+              selectAnyNote(hit.noteId);
+              setAgentOpen(true);
+            } else {
+              jumpToHit(hit.noteId, hit.position);
+            }
+          }}
           onClose={() => setSearchOpen(false)}
         />
       )}
+
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 px-4 py-2 bg-ink-800 border border-amber-500/50 rounded-md text-sm text-paper-100 shadow-2xl no-drag animate-pulse">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StartScreenWrapper(props: {
+  allNotes: Note[];
+  activeNote: Note;
+  onSelectNote: (id: string) => void;
+  onUpdateNote: (id: string, updates: Partial<Note>) => void;
+  onSearch: () => void;
+  onCreateBlank: () => void;
+  cartographAvailable: boolean;
+}) {
+  const { allNotes, activeNote, onSelectNote, onUpdateNote, onSearch, onCreateBlank, cartographAvailable } = props;
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-ink-900">
+      <div className="h-9 border-b border-ink-700 bg-ink-800 flex items-center px-3 no-drag">
+        <span className="text-[11px] font-mono text-paper-200 tracking-[0.18em]">NEW NOTE</span>
+      </div>
+      <div className="px-4 py-2 border-b border-ink-800 bg-ink-900 no-drag">
+        <input
+          type="text"
+          value={activeNote.title}
+          onChange={(e) => onUpdateNote(activeNote.id, { title: e.target.value })}
+          placeholder="Title your note to begin…"
+          autoFocus
+          className="w-full bg-transparent text-paper-50 text-sm font-medium outline-none placeholder:text-paper-200/40 tracking-tight"
+        />
+      </div>
+      <StartScreen
+        allNotes={allNotes.filter((n) => n.id !== activeNote.id)}
+        onSelectNote={onSelectNote}
+        onSearch={onSearch}
+        onCreateBlank={onCreateBlank}
+        cartographAvailable={cartographAvailable}
+      />
     </div>
   );
 }

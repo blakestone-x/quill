@@ -6,15 +6,26 @@ import { streamChat, DEFAULT_MODEL, type ChatMessage } from '../lib/agent';
 interface Props {
   context: string;
   contextTitle: string;
+  messages: ChatMessage[];
+  onChangeMessages: (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
+  onClearMessages: () => void;
   width: number;
   onResize: (w: number) => void;
   onClose: () => void;
 }
 
-export default function AgentPanel({ context, contextTitle, width, onResize, onClose }: Props) {
+export default function AgentPanel({
+  context,
+  contextTitle,
+  messages,
+  onChangeMessages,
+  onClearMessages,
+  width,
+  onResize,
+  onClose
+}: Props) {
   const [apiKey, setApiKey] = useState('');
   const [keyLoaded, setKeyLoaded] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,12 +65,8 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
   const saveKey = async (k: string) => {
     const trimmed = k.trim();
     setApiKey(trimmed);
-    if (trimmed) {
-      await window.quill.setStore('apiKey', trimmed);
-    } else {
-      await window.quill.deleteStore('apiKey');
-      setMessages([]);
-    }
+    if (trimmed) await window.quill.setStore('apiKey', trimmed);
+    else await window.quill.deleteStore('apiKey');
   };
 
   const cancel = () => {
@@ -72,21 +79,20 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
     const prompt = input.trim();
     if (!prompt || !apiKey || busy) return;
     const userMsg: ChatMessage = { role: 'user', content: prompt };
-    const priorMessages = [...messages, userMsg];
-    setMessages([...priorMessages, { role: 'assistant', content: '' }]);
+    onChangeMessages((prev) => [...prev, userMsg, { role: 'assistant', content: '' }]);
     setInput('');
     setBusy(true);
     setError(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
-
+    const priorMessages = [...messages, userMsg];
     const system = buildSystemPrompt(contextTitle, context);
 
     await streamChat(apiKey, priorMessages, system, {
       signal: controller.signal,
       onDelta: (text) => {
-        setMessages((prev) => {
+        onChangeMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
           if (last && last.role === 'assistant') {
@@ -102,7 +108,11 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
       onError: (e) => {
         setError(e.message);
         setBusy(false);
-        setMessages((prev) => prev.filter((_, i) => i !== prev.length - 1 || prev[i].content));
+        onChangeMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === 'assistant' && !last.content) return prev.slice(0, -1);
+          return prev;
+        });
         abortRef.current = null;
       }
     });
@@ -111,10 +121,7 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
   if (!keyLoaded) return null;
 
   return (
-    <div
-      className="border-l border-ink-700 bg-ink-800 flex flex-shrink-0"
-      style={{ width }}
-    >
+    <div className="border-l border-ink-700 bg-ink-800 flex flex-shrink-0" style={{ width }}>
       <div
         onMouseDown={() => {
           draggingRef.current = true;
@@ -124,7 +131,10 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
       <div className="flex-1 flex flex-col min-w-0">
         <div className="h-9 border-b border-ink-700 flex items-center justify-between px-3 no-drag">
           <div className="flex items-center gap-2 text-[11px]">
-            <Sparkles size={12} className={clsx('transition-colors', busy ? 'text-amber-400 animate-pulse' : 'text-amber-400')} />
+            <Sparkles
+              size={12}
+              className={clsx('transition-colors', busy ? 'text-amber-400 animate-pulse' : 'text-amber-400')}
+            />
             <span className="font-mono text-paper-200 tracking-[0.18em]">AGENT</span>
             <span className="text-paper-300 font-mono text-[10px]">{DEFAULT_MODEL}</span>
           </div>
@@ -142,12 +152,15 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
           <ApiKeyPrompt onSave={saveKey} />
         ) : (
           <>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 text-[13px] min-h-0">
+            <div
+              ref={scrollRef}
+              className="flex-1 overflow-y-auto px-3 py-3 space-y-3 text-[13px] min-h-0 selectable"
+            >
               {messages.length === 0 && (
                 <div className="text-paper-200/60 text-xs leading-relaxed">
-                  Ask about{' '}
-                  <span className="text-amber-400">"{contextTitle || 'this note'}"</span> —
-                  summarize, extract action items, draft a follow-up, spot contradictions.
+                  Ask about <span className="text-amber-400">"{contextTitle || 'this note'}"</span>{' '}
+                  — summarize, extract action items, draft a follow-up, spot contradictions.
+                  Conversation persists with this note.
                 </div>
               )}
               {messages.map((m, i) => (
@@ -160,7 +173,7 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
                   >
                     {m.role === 'user' ? 'YOU' : 'AGENT'}
                   </div>
-                  <div className="whitespace-pre-wrap leading-relaxed text-paper-100">
+                  <div className="whitespace-pre-wrap leading-relaxed text-paper-100 selectable">
                     {m.content}
                     {busy && i === messages.length - 1 && m.role === 'assistant' && (
                       <span className="inline-block w-1.5 h-3.5 bg-amber-400 ml-0.5 align-middle animate-pulse" />
@@ -212,7 +225,7 @@ export default function AgentPanel({ context, contextTitle, width, onResize, onC
             <div className="px-3 py-2 border-t border-ink-700 flex items-center justify-between no-drag">
               <button
                 type="button"
-                onClick={() => setMessages([])}
+                onClick={onClearMessages}
                 className="flex items-center gap-1 text-[10px] text-paper-200/60 hover:text-paper-100 transition-colors font-mono"
                 title="Clear conversation"
               >

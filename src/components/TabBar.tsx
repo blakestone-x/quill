@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Plus, Eye, Pencil } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Eye, Pencil, Pin, Plus } from 'lucide-react';
 import clsx from 'clsx';
-import type { Note, DragPayload, PaneMode } from '../types';
+import type { DragPayload, Note, PaneMode } from '../types';
 import TabContextMenu from './TabContextMenu';
 
 type DropSlot = { targetNoteId: string; side: 'before' | 'after' } | 'end' | null;
@@ -15,8 +15,17 @@ interface Props {
   onCreate: () => void;
   onDelete: (id: string) => void;
   onColor: (id: string, color: string | undefined) => void;
-  onReorder: (fromNoteId: string, toNoteId: string | null, side: 'before' | 'after' | 'end') => void;
-  onMoveBetweenPanes: (payload: DragPayload, toNoteId: string | null, side: 'before' | 'after' | 'end') => void;
+  onTogglePin: (id: string) => void;
+  onReorder: (
+    fromNoteId: string,
+    toNoteId: string | null,
+    side: 'before' | 'after' | 'end'
+  ) => void;
+  onMoveBetweenPanes: (
+    payload: DragPayload,
+    toNoteId: string | null,
+    side: 'before' | 'after' | 'end'
+  ) => void;
   onToggleMode: () => void;
 }
 
@@ -29,6 +38,7 @@ export default function TabBar({
   onCreate,
   onDelete,
   onColor,
+  onTogglePin,
   onReorder,
   onMoveBetweenPanes,
   onToggleMode
@@ -36,6 +46,13 @@ export default function TabBar({
   const [menu, setMenu] = useState<{ x: number; y: number; noteId: string } | null>(null);
   const [dropSlot, setDropSlot] = useState<DropSlot>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // Sort pinned first (stable within groups)
+  const sortedTabs = useMemo(() => {
+    const pinned = tabs.filter((t) => t.pinned);
+    const rest = tabs.filter((t) => !t.pinned);
+    return [...pinned, ...rest];
+  }, [tabs]);
 
   const handleDragStart = (e: React.DragEvent, noteId: string) => {
     const payload: DragPayload = { noteId, fromPaneId: paneId };
@@ -80,17 +97,11 @@ export default function TabBar({
     setDraggingId(null);
 
     if (payload.fromPaneId === paneId) {
-      if (slot === 'end') {
-        onReorder(payload.noteId, null, 'end');
-      } else if (slot) {
-        onReorder(payload.noteId, slot.targetNoteId, slot.side);
-      }
+      if (slot === 'end') onReorder(payload.noteId, null, 'end');
+      else if (slot) onReorder(payload.noteId, slot.targetNoteId, slot.side);
     } else {
-      if (slot === 'end' || !slot) {
-        onMoveBetweenPanes(payload, null, 'end');
-      } else {
-        onMoveBetweenPanes(payload, slot.targetNoteId, slot.side);
-      }
+      if (slot === 'end' || !slot) onMoveBetweenPanes(payload, null, 'end');
+      else onMoveBetweenPanes(payload, slot.targetNoteId, slot.side);
     }
   };
 
@@ -108,16 +119,16 @@ export default function TabBar({
         if (e.currentTarget === e.target) setDropSlot(null);
       }}
     >
-      {tabs.map((note) => {
+      {sortedTabs.map((note) => {
         const active = note.id === activeNoteId;
         const dragging = note.id === draggingId;
-        const showIndicatorBefore =
+        const showBefore =
           dropSlot && dropSlot !== 'end' && dropSlot.targetNoteId === note.id && dropSlot.side === 'before';
-        const showIndicatorAfter =
+        const showAfter =
           dropSlot && dropSlot !== 'end' && dropSlot.targetNoteId === note.id && dropSlot.side === 'after';
         return (
           <div key={note.id} className="flex items-stretch relative">
-            {showIndicatorBefore && <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-amber-400" />}
+            {showBefore && <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-amber-400" />}
             <button
               type="button"
               draggable
@@ -133,11 +144,22 @@ export default function TabBar({
               style={note.color ? { boxShadow: `inset 3px 0 0 ${note.color}` } : undefined}
               className={clsx(
                 'group flex items-center gap-2 pl-3 pr-2 border-r border-ink-700 text-xs whitespace-nowrap transition-colors relative',
-                active ? 'bg-ink-900 text-paper-50' : 'text-paper-200 hover:bg-ink-700 hover:text-paper-100',
+                active
+                  ? 'bg-ink-900 text-paper-50'
+                  : 'text-paper-200 hover:bg-ink-700 hover:text-paper-100',
                 dragging && 'opacity-40'
               )}
             >
-              {note.color && !active && (
+              {note.pinned && (
+                <Pin
+                  size={10}
+                  className={clsx(
+                    'rotate-45 flex-shrink-0',
+                    active ? 'text-amber-400' : 'text-amber-500/70'
+                  )}
+                />
+              )}
+              {note.color && !active && !note.pinned && (
                 <span
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{ background: note.color }}
@@ -164,7 +186,7 @@ export default function TabBar({
               </span>
               {active && <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-amber-400" />}
             </button>
-            {showIndicatorAfter && <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-amber-400" />}
+            {showAfter && <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-amber-400" />}
           </div>
         );
       })}
@@ -176,12 +198,8 @@ export default function TabBar({
       >
         <Plus size={14} />
       </button>
-      <div
-        className="flex-1 relative"
-        onDragOver={handleTrailingDragOver}
-        onDrop={handleDrop}
-      >
-        {dropSlot === 'end' && tabs.length > 0 && (
+      <div className="flex-1 relative" onDragOver={handleTrailingDragOver} onDrop={handleDrop}>
+        {dropSlot === 'end' && sortedTabs.length > 0 && (
           <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-amber-400" />
         )}
       </div>
@@ -191,7 +209,9 @@ export default function TabBar({
         title={mode === 'edit' ? 'Preview (markdown)' : 'Edit'}
         className={clsx(
           'px-3 text-xs flex items-center gap-1 transition-colors border-l border-ink-700',
-          mode === 'preview' ? 'text-amber-400 bg-ink-900' : 'text-paper-200 hover:text-paper-50 hover:bg-ink-700'
+          mode === 'preview'
+            ? 'text-amber-400 bg-ink-900'
+            : 'text-paper-200 hover:text-paper-50 hover:bg-ink-700'
         )}
       >
         {mode === 'edit' ? <Eye size={13} /> : <Pencil size={13} />}
@@ -201,8 +221,10 @@ export default function TabBar({
         <TabContextMenu
           x={menu.x}
           y={menu.y}
-          currentColor={tabs.find((t) => t.id === menu.noteId)?.color}
-          onPick={(color) => onColor(menu.noteId, color)}
+          currentColor={sortedTabs.find((t) => t.id === menu.noteId)?.color}
+          pinned={sortedTabs.find((t) => t.id === menu.noteId)?.pinned}
+          onPickColor={(color) => onColor(menu.noteId, color)}
+          onTogglePin={() => onTogglePin(menu.noteId)}
           onDelete={() => onDelete(menu.noteId)}
           onClose={() => setMenu(null)}
         />

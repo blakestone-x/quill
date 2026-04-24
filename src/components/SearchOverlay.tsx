@@ -1,30 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, X } from 'lucide-react';
+import { FileText, MessageSquare, Search, X } from 'lucide-react';
 import type { Note } from '../types';
-import { searchNotes, type SearchHit } from '../lib/search';
+import type { ChatMessage } from '../lib/agent';
+import { searchEverything, type SearchHit } from '../lib/search';
 
 interface Props {
   notes: Note[];
+  agentLogs: Record<string, ChatMessage[]>;
   onPick: (hit: SearchHit) => void;
   onClose: () => void;
 }
 
-export default function SearchOverlay({ notes, onPick, onClose }: Props) {
+export default function SearchOverlay({ notes, agentLogs, onPick, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const hits = useMemo(() => searchNotes(notes, query), [notes, query]);
+  const hits = useMemo(
+    () => searchEverything(notes, agentLogs, query),
+    [notes, agentLogs, query]
+  );
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-
   useEffect(() => {
     setSelected(0);
   }, [query]);
-
   useEffect(() => {
     const item = listRef.current?.children[selected] as HTMLElement | undefined;
     item?.scrollIntoView({ block: 'nearest' });
@@ -49,13 +52,16 @@ export default function SearchOverlay({ notes, onPick, onClose }: Props) {
     }
   };
 
+  const noteHits = hits.filter((h) => h.field !== 'agent');
+  const agentHits = hits.filter((h) => h.field === 'agent');
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/40 no-drag"
       onMouseDown={onClose}
     >
       <div
-        className="w-[560px] max-w-[92vw] bg-ink-800 border border-ink-600 rounded-md shadow-2xl overflow-hidden"
+        className="w-[620px] max-w-[92vw] bg-ink-800 border border-ink-600 rounded-md shadow-2xl overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-2 border-b border-ink-700">
@@ -66,11 +72,13 @@ export default function SearchOverlay({ notes, onPick, onClose }: Props) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search all notes…"
+            placeholder="Search notes + agent history…"
             className="flex-1 bg-transparent text-paper-50 outline-none text-sm placeholder:text-paper-200/40"
           />
           <span className="text-[10px] font-mono text-paper-200/50">
-            {query ? `${hits.length} hit${hits.length === 1 ? '' : 's'}` : 'esc to close'}
+            {query
+              ? `${hits.length} hit${hits.length === 1 ? '' : 's'}${agentHits.length ? ` · ${agentHits.length} agent` : ''}`
+              : 'esc to close'}
           </span>
           <button
             type="button"
@@ -81,44 +89,95 @@ export default function SearchOverlay({ notes, onPick, onClose }: Props) {
           </button>
         </div>
 
-        <div
-          ref={listRef}
-          className="max-h-[60vh] overflow-y-auto"
-          onKeyDown={onKeyDown}
-        >
+        <div ref={listRef} className="max-h-[60vh] overflow-y-auto" onKeyDown={onKeyDown}>
           {query && hits.length === 0 && (
             <div className="px-4 py-6 text-center text-xs text-paper-200/50 font-mono">
               no matches
             </div>
           )}
-          {hits.map((hit, i) => (
-            <button
-              key={`${hit.noteId}-${hit.position}-${hit.field}`}
-              type="button"
-              onClick={() => {
-                onPick(hit);
-                onClose();
-              }}
-              onMouseEnter={() => setSelected(i)}
-              className={
-                'w-full text-left px-3 py-2 border-b border-ink-700/50 transition-colors block ' +
-                (i === selected ? 'bg-ink-700' : 'hover:bg-ink-700/50')
-              }
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-paper-50 font-medium truncate">{hit.noteTitle}</span>
-                <span className="text-[10px] font-mono text-paper-200/60 ml-2 flex-shrink-0">
-                  {hit.field === 'title' ? 'title' : `@${hit.position}`}
-                </span>
-              </div>
-              <div className="text-[12px] text-paper-200 font-mono leading-snug truncate">
-                {renderSnippet(hit)}
-              </div>
-            </button>
-          ))}
+          {noteHits.length > 0 && (
+            <GroupHeader label="NOTES" />
+          )}
+          {hits
+            .map((h, i) => ({ hit: h, origIdx: i }))
+            .filter(({ hit }) => hit.field !== 'agent')
+            .map(({ hit, origIdx }) => (
+              <HitRow
+                key={`${hit.noteId}-${hit.position}-${hit.field}-${hit.agentIndex ?? ''}`}
+                hit={hit}
+                active={origIdx === selected}
+                onHover={() => setSelected(origIdx)}
+                onClick={() => {
+                  onPick(hit);
+                  onClose();
+                }}
+              />
+            ))}
+          {agentHits.length > 0 && <GroupHeader label="AGENT CONVERSATIONS" />}
+          {hits
+            .map((h, i) => ({ hit: h, origIdx: i }))
+            .filter(({ hit }) => hit.field === 'agent')
+            .map(({ hit, origIdx }) => (
+              <HitRow
+                key={`${hit.noteId}-${hit.position}-${hit.field}-${hit.agentIndex ?? ''}`}
+                hit={hit}
+                active={origIdx === selected}
+                onHover={() => setSelected(origIdx)}
+                onClick={() => {
+                  onPick(hit);
+                  onClose();
+                }}
+              />
+            ))}
         </div>
       </div>
     </div>
+  );
+}
+
+function GroupHeader({ label }: { label: string }) {
+  return (
+    <div className="px-3 py-1.5 bg-ink-900 border-b border-ink-700/50 text-[10px] font-mono tracking-[0.18em] text-paper-300">
+      {label}
+    </div>
+  );
+}
+
+function HitRow({
+  hit,
+  active,
+  onHover,
+  onClick
+}: {
+  hit: SearchHit;
+  active: boolean;
+  onHover: () => void;
+  onClick: () => void;
+}) {
+  const Icon = hit.field === 'agent' ? MessageSquare : FileText;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={onHover}
+      className={
+        'w-full text-left px-3 py-2 border-b border-ink-700/50 transition-colors block ' +
+        (active ? 'bg-ink-700' : 'hover:bg-ink-700/50')
+      }
+    >
+      <div className="flex items-center justify-between mb-1 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Icon size={11} className={hit.field === 'agent' ? 'text-amber-400/80' : 'text-paper-300'} />
+          <span className="text-xs text-paper-50 font-medium truncate">{hit.noteTitle}</span>
+        </div>
+        <span className="text-[10px] font-mono text-paper-200/60 flex-shrink-0">
+          {hit.field === 'title' ? 'title' : hit.field === 'agent' ? 'agent' : `@${hit.position}`}
+        </span>
+      </div>
+      <div className="text-[12px] text-paper-200 font-mono leading-snug truncate">
+        {renderSnippet(hit)}
+      </div>
+    </button>
   );
 }
 

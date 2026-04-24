@@ -1,17 +1,28 @@
 import { useEffect, useRef } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Pin, Trash2 } from 'lucide-react';
 import { TAB_COLORS } from '../types';
 
 interface Props {
   x: number;
   y: number;
   currentColor?: string;
-  onPick: (color: string | undefined) => void;
+  pinned?: boolean;
+  onPickColor: (color: string | undefined) => void;
+  onTogglePin: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
-export default function TabContextMenu({ x, y, currentColor, onPick, onDelete, onClose }: Props) {
+export default function TabContextMenu({
+  x,
+  y,
+  currentColor,
+  pinned,
+  onPickColor,
+  onTogglePin,
+  onDelete,
+  onClose
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,12 +40,10 @@ export default function TabContextMenu({ x, y, currentColor, onPick, onDelete, o
     };
   }, [onClose]);
 
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const width = 224;
-  const height = 92;
-  const adjX = Math.min(x, viewportWidth - width - 8);
-  const adjY = Math.min(y, viewportHeight - height - 8);
+  const width = 228;
+  const height = 132;
+  const adjX = Math.min(x, window.innerWidth - width - 8);
+  const adjY = Math.min(y, window.innerHeight - height - 8);
 
   return (
     <div
@@ -48,7 +57,7 @@ export default function TabContextMenu({ x, y, currentColor, onPick, onDelete, o
             key={c.value}
             type="button"
             onClick={() => {
-              onPick(c.value);
+              onPickColor(c.value);
               onClose();
             }}
             title={c.label}
@@ -63,7 +72,7 @@ export default function TabContextMenu({ x, y, currentColor, onPick, onDelete, o
         <button
           type="button"
           onClick={() => {
-            onPick(undefined);
+            onPickColor(undefined);
             onClose();
           }}
           title="Clear color"
@@ -73,6 +82,17 @@ export default function TabContextMenu({ x, y, currentColor, onPick, onDelete, o
         </button>
       </div>
       <div className="border-t border-ink-700 my-1" />
+      <button
+        type="button"
+        onClick={() => {
+          onTogglePin();
+          onClose();
+        }}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-paper-100 hover:bg-ink-700 transition-colors"
+      >
+        <Pin size={12} className={pinned ? 'text-amber-400 rotate-45' : ''} />
+        {pinned ? 'Unpin tab' : 'Pin tab'}
+      </button>
       <button
         type="button"
         onClick={() => {

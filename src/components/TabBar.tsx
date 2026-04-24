@@ -165,6 +165,12 @@ export default function TabBar({
                   style={{ background: note.color }}
                 />
               )}
+              {note.cartographSync && note.cartographSync !== 'off' && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0 animate-pulse"
+                  title={`Live-synced to Cartograph (${note.cartographSync})`}
+                />
+              )}
               <span className="max-w-[160px] truncate">{note.title || 'Untitled'}</span>
               <span
                 role="button"

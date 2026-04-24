@@ -28,7 +28,11 @@ export async function readNote(id: string): Promise<Note | null> {
     color: typeof meta['color'] === 'string' ? (meta['color'] as string) : undefined,
     pinned: meta['pinned'] === true,
     kind: typeof meta['kind'] === 'string' ? (meta['kind'] as 'note' | 'template') : 'note',
-    tags: Array.isArray(meta['tags']) ? (meta['tags'] as string[]) : []
+    tags: Array.isArray(meta['tags']) ? (meta['tags'] as string[]) : [],
+    cartographSync:
+      meta['cartograph_sync'] === 'session' || meta['cartograph_sync'] === 'template'
+        ? (meta['cartograph_sync'] as 'session' | 'template')
+        : 'off'
   };
 }
 
@@ -44,6 +48,7 @@ export async function writeNote(note: Note): Promise<void> {
   if (note.color) meta.color = note.color;
   if (note.pinned) meta.pinned = true;
   if (note.tags && note.tags.length > 0) meta.tags = note.tags;
+  if (note.cartographSync && note.cartographSync !== 'off') meta.cartograph_sync = note.cartographSync;
   await window.quill.writeNote(note.id, buildMarkdown(meta, note.content));
 }
 

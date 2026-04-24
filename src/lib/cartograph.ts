@@ -11,6 +11,33 @@ export async function isCartographAvailable(): Promise<boolean> {
   return window.quill.cartographAvailable();
 }
 
+export async function pushNoteLive(note: Note, agentMessages: ChatMessage[]): Promise<PushResult> {
+  if (!note.cartographSync || note.cartographSync === 'off') return { ok: true };
+  const body =
+    note.cartographSync === 'template'
+      ? note.content
+      : buildSessionLogBody(note, agentMessages);
+  return window.quill.cartographPushLive({
+    noteId: note.id,
+    tier: note.cartographSync === 'template' ? 'procedural' : 'working',
+    kind: note.cartographSync === 'template' ? 'template' : 'session_log',
+    title: note.title || 'Untitled',
+    body,
+    frontmatter: {
+      session_id: note.id,
+      note_title: note.title || 'Untitled',
+      note_created: new Date(note.createdAt).toISOString(),
+      agent_turn_count: agentMessages.length,
+      tags: note.tags ?? [],
+      ...(note.cartographSync === 'template' ? { status: 'reviewed', template_id: note.id } : {})
+    }
+  });
+}
+
+export async function unlinkLive(noteId: string): Promise<PushResult> {
+  return window.quill.cartographUnlinkLive(noteId);
+}
+
 export async function pushNoteAsSessionLog(
   note: Note,
   agentMessages: ChatMessage[]
@@ -45,7 +72,7 @@ export async function pushNoteAsTemplate(note: Note): Promise<PushResult> {
   });
 }
 
-function buildSessionLogBody(note: Note, messages: ChatMessage[]): string {
+export function buildSessionLogBody(note: Note, messages: ChatMessage[]): string {
   const sections: string[] = [];
   sections.push(`# ${note.title || 'Untitled'}`, '');
   sections.push('## Note body', '');

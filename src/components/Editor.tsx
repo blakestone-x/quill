@@ -7,18 +7,50 @@ interface Props {
   note: Note;
   onChange: (updates: Partial<Note>) => void;
   scrollSignal?: { position: number; token: number };
+  bodyOverride?: React.ReactNode;
+  focusTitleSignal?: number;
 }
 
-export default function Editor({ note, onChange, scrollSignal }: Props) {
+export default function Editor({
+  note,
+  onChange,
+  scrollSignal,
+  bodyOverride,
+  focusTitleSignal
+}: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
   const [flash, setFlash] = useState(false);
   const lastSignalToken = useRef<number | undefined>(undefined);
+  const lastFocusToken = useRef<number | undefined>(undefined);
+  const lastNoteIdRef = useRef(note.id);
 
   useEffect(() => {
     if (!flash) return;
     const t = setTimeout(() => setFlash(false), 650);
     return () => clearTimeout(t);
   }, [flash]);
+
+  // When switching to a different note that's empty, focus the title input.
+  useEffect(() => {
+    if (lastNoteIdRef.current === note.id) return;
+    lastNoteIdRef.current = note.id;
+    if (!note.title && !note.content) {
+      requestAnimationFrame(() => titleRef.current?.focus());
+    }
+  }, [note.id, note.title, note.content]);
+
+  // Explicit focus-title request (from double-click on tab, etc.)
+  useEffect(() => {
+    if (focusTitleSignal === undefined) return;
+    if (focusTitleSignal === lastFocusToken.current) return;
+    lastFocusToken.current = focusTitleSignal;
+    const el = titleRef.current;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  }, [focusTitleSignal]);
 
   useEffect(() => {
     if (!scrollSignal || scrollSignal.token === lastSignalToken.current) return;
@@ -72,33 +104,40 @@ export default function Editor({ note, onChange, scrollSignal }: Props) {
     <div className="flex flex-col h-full min-h-0 bg-ink-900 relative">
       <div className="px-4 py-2 border-b border-ink-800 bg-ink-900 no-drag">
         <input
+          ref={titleRef}
           type="text"
           value={note.title}
           onChange={(e) => onChange({ title: e.target.value })}
-          placeholder="Person or topic…"
+          placeholder="Title this note…"
+          spellCheck
+          data-quill-title-for={note.id}
           className="w-full bg-transparent text-paper-50 text-sm font-medium outline-none placeholder:text-paper-200/40 tracking-tight"
         />
       </div>
       <div className="flex-1 min-h-0 relative">
-        <textarea
-          ref={textareaRef}
-          value={note.content}
-          onChange={(e) => onChange({ content: e.target.value })}
-          onKeyDown={handleKeyDown}
-          placeholder="Start typing. Try 4+5= inline."
-          spellCheck
-          className={clsx(
-            'absolute inset-0 w-full h-full px-4 py-3 bg-transparent text-paper-100 resize-none outline-none font-mono text-[13px] leading-[1.6] placeholder:text-paper-200/30 transition-colors duration-500',
-            flash && 'bg-amber-500/10'
-          )}
-        />
+        {bodyOverride ?? (
+          <textarea
+            ref={textareaRef}
+            value={note.content}
+            onChange={(e) => onChange({ content: e.target.value })}
+            onKeyDown={handleKeyDown}
+            placeholder="Start typing. Try 4+5= inline."
+            spellCheck
+            className={clsx(
+              'absolute inset-0 w-full h-full px-4 py-3 bg-transparent text-paper-100 resize-none outline-none font-mono text-[13px] leading-[1.6] placeholder:text-paper-200/30 transition-colors duration-500',
+              flash && 'bg-amber-500/10'
+            )}
+          />
+        )}
       </div>
-      <div className="px-4 py-1 border-t border-ink-800 flex items-center justify-between text-[10px] text-paper-200/60 font-mono no-drag">
-        <span>
-          {note.content.length} chars · {wordCount(note.content)} words
-        </span>
-        <span>edited {formatTime(note.updatedAt)}</span>
-      </div>
+      {!bodyOverride && (
+        <div className="px-4 py-1 border-t border-ink-800 flex items-center justify-between text-[10px] text-paper-200/60 font-mono no-drag">
+          <span>
+            {note.content.length} chars · {wordCount(note.content)} words
+          </span>
+          <span>edited {formatTime(note.updatedAt)}</span>
+        </div>
+      )}
     </div>
   );
 }

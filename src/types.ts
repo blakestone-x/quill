@@ -8,6 +8,7 @@ export interface Note {
   pinned?: boolean;
   kind?: 'note' | 'template';
   tags?: string[];
+  cartographSync?: 'off' | 'session' | 'template';
 }
 
 export interface Pane {

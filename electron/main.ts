@@ -362,6 +362,165 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle(
+  'cartograph:push-live',
+  (
+    _e,
+    payload: {
+      noteId: string;
+      tier: 'working' | 'procedural';
+      kind: 'session_log' | 'template';
+      title: string;
+      body: string;
+      frontmatter?: Record<string, unknown>;
+    }
+  ) => {
+    if (!cartographAvailable()) {
+      return { ok: false, reason: 'Cartograph not found at ' + cartographRoot() };
+    }
+    if (!safeId(payload.noteId)) return { ok: false, reason: 'bad id' };
+    try {
+      const root = cartographRoot();
+      const tierDir = join(root, 'memory', payload.tier);
+      mkdirSync(tierDir, { recursive: true });
+      const prefix = payload.kind === 'template' ? 'quill-template' : 'quill-live';
+      const filepath = join(tierDir, `${prefix}-${payload.noteId}.md`);
+      const front: Record<string, unknown> = {
+        source: 'quill',
+        kind: payload.kind,
+        tier: payload.tier,
+        sync: 'live',
+        updated: new Date().toISOString(),
+        ...(payload.frontmatter ?? {})
+      };
+      writeFileSync(filepath, buildMarkdown(front, payload.body));
+      return { ok: true, path: filepath };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    }
+  }
+);
+
+ipcMain.handle('cartograph:unlink-live', (_e, noteId: string) => {
+  if (!safeId(noteId)) return { ok: false };
+  if (!cartographAvailable()) return { ok: true };
+  try {
+    const root = cartographRoot();
+    for (const tier of ['working', 'procedural']) {
+      for (const prefix of ['quill-live', 'quill-template']) {
+        const p = join(root, 'memory', tier, `${prefix}-${noteId}.md`);
+        if (existsSync(p)) unlinkSync(p);
+      }
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+});
+
+// ── Context gather for the agent ──
+// Pulls CLAUDE.md (global + workspace) + recent Cartograph working-tier excerpts
+// matching keywords from the active note's title/tags. Size-capped.
+
+const GLOBAL_CLAUDE_MD = join(homedir(), '.claude', 'CLAUDE.md');
+const WORKSPACE_CLAUDE_MD = join(homedir(), 'Claude Workspace', 'CLAUDE.md');
+const MEMORY_DIR = join(
+  homedir(),
+  '.claude',
+  'projects',
+  'C--Users-BlakeStone-Claude-Workspace',
+  'memory'
+);
+
+ipcMain.handle(
+  'context:gather',
+  (
+    _e,
+    payload: { title: string; tags?: string[]; body?: string; maxChars?: number }
+  ): { ok: true; context: string; sources: string[] } => {
+    const maxChars = payload.maxChars ?? 12000;
+    const sources: string[] = [];
+    const chunks: string[] = [];
+
+    const addFile = (label: string, path: string, cap = 4000) => {
+      try {
+        if (!existsSync(path)) return;
+        const raw = readFileSync(path, 'utf-8');
+        const trimmed = raw.length > cap ? raw.slice(0, cap) + '\n…[truncated]' : raw;
+        chunks.push(`<${label}>\n${trimmed}\n</${label}>`);
+        sources.push(path);
+      } catch {
+        // ignore
+      }
+    };
+
+    addFile('global_claude_md', GLOBAL_CLAUDE_MD, 5000);
+    addFile('workspace_claude_md', WORKSPACE_CLAUDE_MD, 3000);
+
+    // Claude memory index
+    addFile('claude_memory_index', join(MEMORY_DIR, 'MEMORY.md'), 2000);
+
+    // Cartograph excerpts — keyword match on note title and tags
+    if (cartographAvailable()) {
+      const keywords = new Set<string>();
+      for (const token of payload.title.split(/\s+/)) {
+        const t = token.trim().toLowerCase();
+        if (t.length >= 4) keywords.add(t);
+      }
+      for (const tag of payload.tags ?? []) {
+        const t = tag.trim().toLowerCase();
+        if (t.length >= 3) keywords.add(t);
+      }
+      if (keywords.size > 0) {
+        const workingDir = join(cartographRoot(), 'memory', 'working');
+        try {
+          const files = readdirSync(workingDir)
+            .filter((f) => f.endsWith('.md'))
+            .map((f) => ({ name: f, path: join(workingDir, f) }))
+            .sort((a, b) => b.name.localeCompare(a.name)) // newest first by timestamp prefix
+            .slice(0, 200); // bound the scan
+
+          const matches: { path: string; snippet: string }[] = [];
+          for (const f of files) {
+            if (matches.length >= 5) break;
+            try {
+              const content = readFileSync(f.path, 'utf-8').toLowerCase();
+              for (const kw of keywords) {
+                const idx = content.indexOf(kw);
+                if (idx !== -1) {
+                  const start = Math.max(0, idx - 200);
+                  const end = Math.min(content.length, idx + 400);
+                  const snippet = readFileSync(f.path, 'utf-8').slice(start, end);
+                  matches.push({ path: f.path, snippet });
+                  break;
+                }
+              }
+            } catch {
+              // ignore
+            }
+          }
+          if (matches.length > 0) {
+            const body = matches
+              .map(
+                (m) =>
+                  `### ${m.path.split(/[\\/]/).slice(-2).join('/')}\n${m.snippet}`
+              )
+              .join('\n\n');
+            chunks.push(`<cartograph_excerpts>\n${body}\n</cartograph_excerpts>`);
+            for (const m of matches) sources.push(m.path);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    let combined = chunks.join('\n\n');
+    if (combined.length > maxChars) combined = combined.slice(0, maxChars) + '\n…[context truncated]';
+    return { ok: true, context: combined, sources };
+  }
+);
+
 // ── Shell IPC ──
 ipcMain.handle('shell:open-external', (_e, url: string) => {
   if (typeof url !== 'string') return;

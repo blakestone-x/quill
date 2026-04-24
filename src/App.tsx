@@ -5,7 +5,6 @@ import SplitLayout from './components/SplitLayout';
 import AgentPanel from './components/AgentPanel';
 import SearchOverlay from './components/SearchOverlay';
 import UpdateBanner from './components/UpdateBanner';
-import StartScreen from './components/StartScreen';
 import type {
   DragPayload,
   DropEdge,
@@ -17,28 +16,27 @@ import type {
 } from './types';
 import type { ChatMessage } from './lib/agent';
 import * as storage from './lib/storage';
-import { pushNoteAsSessionLog, pushNoteAsTemplate } from './lib/cartograph';
+import { pushNoteAsSessionLog, pushNoteAsTemplate, pushNoteLive, unlinkLive } from './lib/cartograph';
 
-const WELCOME = `Welcome to Quill v1.
+const WELCOME = `Welcome to Quill v1.1.
 
-This note and every other note you write is stored as a standalone .md file in %APPDATA%\\Quill\\notes.
+Every note is stored as a standalone .md file in %APPDATA%\\Quill\\notes.
+
+New in v1.1:
+  · **Title works.** Click the title field up top and type — it stays focused whether you're on the start screen or an active note.
+  · **Live Cartograph sync.** Database icon → pick "Live as session" or "Live as template" to make this note auto-save into Cartograph on every change. Amber dot on the tab means live-sync is on.
+  · **Agent gets wider context.** When you ask the agent something, Quill auto-injects your CLAUDE.md (global + workspace), Claude's memory index, and up to 5 relevant Cartograph working-tier excerpts into the system prompt. The agent cites which source it used. A small "+N" badge in the agent panel header shows how many external sources were pulled.
 
 Quick tour:
-  · Pin (top bar) keeps Quill floating above everything. Global hotkey Ctrl+Shift+Q shows/hides from anywhere.
-  · Three split icons: vertical, horizontal, and 2x2 grid. Drag tabs to edges to split.
+  · Pin (top bar) keeps Quill floating. Ctrl+Shift+Q summons from anywhere.
+  · Three layouts: vertical, horizontal, 2x2 grid. Drag tabs to edges to split.
   · Right-click a tab for colors + pin. Pinned tabs stick left.
-  · Database icon in the title bar pushes the current note to Cartograph — pick "session" for memory/working or "template" for memory/procedural (curated prompts).
   · Inline math: type "150+200+50=" and it resolves to "= 400".
-  · Sparkle icon opens the agent; your conversation persists per-note. Select + copy works now.
-  · Ctrl+F searches everything — note titles, bodies, and agent conversations.
+  · Ctrl+F searches notes and agent history together.
 
 Shortcuts:
-  Ctrl+N     new note             Ctrl+\\       vertical split
-  Ctrl+W     close note           Ctrl+-       horizontal split
-  Ctrl+P     pin window           Ctrl+G       2x2 grid
-  Ctrl+F     search everything    Ctrl+K       agent panel
-  Ctrl+Shift+Q  summon from any app
-  Ctrl+Shift+I  open devtools
+  Ctrl+N new note   Ctrl+W close   Ctrl+\\ vsplit   Ctrl+- hsplit   Ctrl+G grid
+  Ctrl+F search     Ctrl+K agent   Ctrl+P pin       Ctrl+Shift+Q summon
 
 Delete this note to start fresh.`;
 
@@ -63,18 +61,28 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scrollSignals, setScrollSignals] = useState<Record<string, ScrollSignal>>({});
+  const [titleFocusSignals, setTitleFocusSignals] = useState<Record<string, number>>({});
   const [agentHistory, setAgentHistory] = useState<Record<string, ChatMessage[]>>({});
   const [cartographAvailable, setCartographAvailable] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const loadedRef = useRef(false);
   const layoutRef = useRef(layout);
+  const notesRef = useRef(notes);
+  const agentHistoryRef = useRef(agentHistory);
   const writeQueueRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const agentLogWriteQueueRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const liveSyncQueueRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   useEffect(() => {
     layoutRef.current = layout;
   }, [layout]);
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+  useEffect(() => {
+    agentHistoryRef.current = agentHistory;
+  }, [agentHistory]);
 
   useEffect(() => {
     (async () => {
@@ -86,7 +94,6 @@ export default function App() {
       setCartographAvailable(cartoAvail);
 
       const loadedNotes = await storage.loadAllNotes();
-
       const loadedAgentHistory: Record<string, ChatMessage[]> = {};
       for (const n of loadedNotes) {
         const log = await storage.readAgentLog(n.id);
@@ -145,7 +152,6 @@ export default function App() {
     })();
   }, []);
 
-  // Persist settings (excluding notes — those go to .md files)
   useEffect(() => {
     if (!loadedRef.current) return;
     const t = setTimeout(() => {
@@ -158,7 +164,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, [panes, layout, vRatio, hRatio, agentWidth]);
 
-  // Queue per-note .md writes when a note changes
   const queueWriteNote = useCallback((note: Note) => {
     const queue = writeQueueRef.current;
     const existing = queue.get(note.id);
@@ -170,44 +175,65 @@ export default function App() {
     queue.set(note.id, timer);
   }, []);
 
-  const queueWriteAgentLog = useCallback((noteId: string, noteTitle: string, messages: ChatMessage[]) => {
-    const queue = agentLogWriteQueueRef.current;
+  const queueWriteAgentLog = useCallback(
+    (noteId: string, noteTitle: string, messages: ChatMessage[]) => {
+      const queue = agentLogWriteQueueRef.current;
+      const existing = queue.get(noteId);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        storage.writeAgentLog(noteId, noteTitle, messages).catch((e) =>
+          console.error('writeAgentLog failed', e)
+        );
+        queue.delete(noteId);
+      }, 400);
+      queue.set(noteId, timer);
+    },
+    []
+  );
+
+  const queueLiveSync = useCallback((noteId: string) => {
+    const queue = liveSyncQueueRef.current;
     const existing = queue.get(noteId);
     if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      storage.writeAgentLog(noteId, noteTitle, messages).catch((e) =>
-        console.error('writeAgentLog failed', e)
-      );
+    const timer = setTimeout(async () => {
+      const note = notesRef.current.find((n) => n.id === noteId);
+      if (!note) return;
+      if (!note.cartographSync || note.cartographSync === 'off') return;
+      const history = agentHistoryRef.current[noteId] ?? [];
+      await pushNoteLive(note, history).catch((e) => console.error('live sync failed', e));
       queue.delete(noteId);
-    }, 400);
+    }, 1200);
     queue.set(noteId, timer);
   }, []);
 
-  const createNote = useCallback((paneId?: string) => {
-    const note: Note = {
-      id: nanoid(10),
-      title: '',
-      content: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      kind: 'note'
-    };
-    setNotes((prev) => {
-      queueWriteNote(note);
-      return [...prev, note];
-    });
-    setPanes((prev) => {
-      if (prev.length === 0) {
-        return [{ id: nanoid(), noteIds: [note.id], activeNoteId: note.id, mode: 'edit' }];
-      }
-      const targetId = paneId ?? prev[0].id;
-      return prev.map((p) =>
-        p.id === targetId
-          ? { ...p, noteIds: [...p.noteIds, note.id], activeNoteId: note.id }
-          : p
-      );
-    });
-  }, [queueWriteNote]);
+  const createNote = useCallback(
+    (paneId?: string) => {
+      const note: Note = {
+        id: nanoid(10),
+        title: '',
+        content: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        kind: 'note'
+      };
+      setNotes((prev) => {
+        queueWriteNote(note);
+        return [...prev, note];
+      });
+      setPanes((prev) => {
+        if (prev.length === 0) {
+          return [{ id: nanoid(), noteIds: [note.id], activeNoteId: note.id, mode: 'edit' }];
+        }
+        const targetId = paneId ?? prev[0].id;
+        return prev.map((p) =>
+          p.id === targetId
+            ? { ...p, noteIds: [...p.noteIds, note.id], activeNoteId: note.id }
+            : p
+        );
+      });
+    },
+    [queueWriteNote]
+  );
 
   const updateNote = useCallback(
     (id: string, updates: Partial<Note>) => {
@@ -216,11 +242,14 @@ export default function App() {
           n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n
         );
         const updated = next.find((n) => n.id === id);
-        if (updated) queueWriteNote(updated);
+        if (updated) {
+          queueWriteNote(updated);
+          if (updated.cartographSync && updated.cartographSync !== 'off') queueLiveSync(id);
+        }
         return next;
       });
     },
-    [queueWriteNote]
+    [queueWriteNote, queueLiveSync]
   );
 
   const colorNote = useCallback(
@@ -245,6 +274,30 @@ export default function App() {
       });
     },
     [queueWriteNote]
+  );
+
+  const setLiveSync = useCallback(
+    (mode: 'off' | 'session' | 'template') => {
+      const first = panes[0];
+      const noteId = first?.activeNoteId;
+      if (!noteId) return;
+      setNotes((prev) => {
+        const next = prev.map((n) =>
+          n.id === noteId ? { ...n, cartographSync: mode } : n
+        );
+        const updated = next.find((n) => n.id === noteId);
+        if (updated) queueWriteNote(updated);
+        return next;
+      });
+      if (mode === 'off') {
+        unlinkLive(noteId).catch(() => undefined);
+        flashToast('Cartograph live-sync disabled for this note');
+      } else {
+        queueLiveSync(noteId);
+        flashToast(`Live-syncing as ${mode} → Cartograph`);
+      }
+    },
+    [panes, queueWriteNote, queueLiveSync]
   );
 
   const deleteNoteGlobal = useCallback((noteId: string) => {
@@ -280,6 +333,7 @@ export default function App() {
       return next;
     });
     storage.deleteNote(noteId).catch(() => undefined);
+    unlinkLive(noteId).catch(() => undefined);
     setAgentHistory((prev) => {
       if (!prev[noteId]) return prev;
       const { [noteId]: _, ...rest } = prev;
@@ -450,14 +504,12 @@ export default function App() {
               }
             : p
         );
-
         const newPane: Pane = {
           id: nanoid(),
           noteIds: [payload.noteId],
           activeNoteId: payload.noteId,
           mode: 'edit'
         };
-
         const currentLayout = layoutRef.current;
         let nextLayout: Layout = currentLayout;
         let nextPanes: Pane[] = working;
@@ -557,16 +609,12 @@ export default function App() {
         const next = updater(current);
         const note = notesRef.current.find((n) => n.id === noteId);
         queueWriteAgentLog(noteId, note?.title ?? 'Untitled', next);
+        if (note?.cartographSync && note.cartographSync !== 'off') queueLiveSync(noteId);
         return { ...prev, [noteId]: next };
       });
     },
-    [queueWriteAgentLog]
+    [queueWriteAgentLog, queueLiveSync]
   );
-
-  const notesRef = useRef(notes);
-  useEffect(() => {
-    notesRef.current = notes;
-  }, [notes]);
 
   const clearAgentMessages = useCallback(
     (noteId: string) => {
@@ -582,7 +630,7 @@ export default function App() {
 
   const flashToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
   const pushSession = useCallback(async () => {
@@ -656,21 +704,14 @@ export default function App() {
 
   const activeNote = notes.find((n) => n.id === panes[0]?.activeNoteId) ?? notes[0] ?? null;
   const activeMessages = activeNote ? agentHistory[activeNote.id] ?? [] : [];
-
-  const shouldShowStartScreen =
-    activeNote !== null &&
-    !activeNote.title.trim() &&
-    !activeNote.content.trim() &&
-    layout === 'single';
+  const activeLiveSync = activeNote?.cartographSync ?? 'off';
 
   const selectAnyNote = useCallback((noteId: string) => {
     setPanes((prev) => {
       if (prev.length === 0) return prev;
       const first = prev[0];
       const noteIds = first.noteIds.includes(noteId) ? first.noteIds : [...first.noteIds, noteId];
-      return prev.map((p, i) =>
-        i === 0 ? { ...p, noteIds, activeNoteId: noteId } : p
-      );
+      return prev.map((p, i) => (i === 0 ? { ...p, noteIds, activeNoteId: noteId } : p));
     });
   }, []);
 
@@ -695,42 +736,35 @@ export default function App() {
         onSearch={() => setSearchOpen(true)}
         onPushSession={pushSession}
         onPushTemplate={pushTemplate}
+        onSetLiveSync={setLiveSync}
+        liveSyncMode={activeLiveSync}
         cartographAvailable={cartographAvailable}
       />
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 min-w-0 overflow-hidden">
-          {shouldShowStartScreen ? (
-            <StartScreenWrapper
-              allNotes={notes}
-              activeNote={activeNote}
-              onSelectNote={selectAnyNote}
-              onUpdateNote={updateNote}
-              onSearch={() => setSearchOpen(true)}
-              onCreateBlank={() => createNote()}
-              cartographAvailable={cartographAvailable}
-            />
-          ) : (
-            <SplitLayout
-              layout={layout}
-              panes={panes}
-              notes={notes}
-              vRatio={vRatio}
-              hRatio={hRatio}
-              onSetVRatio={setVRatio}
-              onSetHRatio={setHRatio}
-              onSelectNote={selectNoteInPane}
-              onUpdateNote={updateNote}
-              onCreateNote={createNote}
-              onDeleteNote={deleteFromPane}
-              onColorNote={colorNote}
-              onTogglePinNote={togglePinNote}
-              onReorderInPane={reorderInPane}
-              onMoveBetweenPanes={moveBetweenPanes}
-              onSetPaneMode={setPaneMode}
-              onDropOnEdge={dropOnEdge}
-              scrollSignals={scrollSignals}
-            />
-          )}
+          <SplitLayout
+            layout={layout}
+            panes={panes}
+            notes={notes}
+            vRatio={vRatio}
+            hRatio={hRatio}
+            onSetVRatio={setVRatio}
+            onSetHRatio={setHRatio}
+            onSelectNote={selectNoteInPane}
+            onUpdateNote={updateNote}
+            onCreateNote={createNote}
+            onDeleteNote={deleteFromPane}
+            onColorNote={colorNote}
+            onTogglePinNote={togglePinNote}
+            onReorderInPane={reorderInPane}
+            onMoveBetweenPanes={moveBetweenPanes}
+            onSetPaneMode={setPaneMode}
+            onDropOnEdge={dropOnEdge}
+            onSearch={() => setSearchOpen(true)}
+            scrollSignals={scrollSignals}
+            titleFocusSignals={titleFocusSignals}
+            cartographAvailable={cartographAvailable}
+          />
         </div>
         {agentOpen && activeNote && (
           <AgentPanel
@@ -738,6 +772,7 @@ export default function App() {
             onResize={setAgentWidth}
             context={activeNote.content}
             contextTitle={activeNote.title}
+            contextTags={activeNote.tags ?? []}
             messages={activeMessages}
             onChangeMessages={(updater) => updateAgentMessages(activeNote.id, updater)}
             onClearMessages={() => clearAgentMessages(activeNote.id)}
@@ -763,46 +798,10 @@ export default function App() {
       )}
 
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50 px-4 py-2 bg-ink-800 border border-amber-500/50 rounded-md text-sm text-paper-100 shadow-2xl no-drag animate-pulse">
+        <div className="fixed bottom-4 right-4 z-50 px-4 py-2 bg-ink-800 border border-amber-500/50 rounded-md text-sm text-paper-100 shadow-2xl no-drag">
           {toast}
         </div>
       )}
-    </div>
-  );
-}
-
-function StartScreenWrapper(props: {
-  allNotes: Note[];
-  activeNote: Note;
-  onSelectNote: (id: string) => void;
-  onUpdateNote: (id: string, updates: Partial<Note>) => void;
-  onSearch: () => void;
-  onCreateBlank: () => void;
-  cartographAvailable: boolean;
-}) {
-  const { allNotes, activeNote, onSelectNote, onUpdateNote, onSearch, onCreateBlank, cartographAvailable } = props;
-  return (
-    <div className="flex flex-col h-full min-h-0 bg-ink-900">
-      <div className="h-9 border-b border-ink-700 bg-ink-800 flex items-center px-3 no-drag">
-        <span className="text-[11px] font-mono text-paper-200 tracking-[0.18em]">NEW NOTE</span>
-      </div>
-      <div className="px-4 py-2 border-b border-ink-800 bg-ink-900 no-drag">
-        <input
-          type="text"
-          value={activeNote.title}
-          onChange={(e) => onUpdateNote(activeNote.id, { title: e.target.value })}
-          placeholder="Title your note to begin…"
-          autoFocus
-          className="w-full bg-transparent text-paper-50 text-sm font-medium outline-none placeholder:text-paper-200/40 tracking-tight"
-        />
-      </div>
-      <StartScreen
-        allNotes={allNotes.filter((n) => n.id !== activeNote.id)}
-        onSelectNote={onSelectNote}
-        onSearch={onSearch}
-        onCreateBlank={onCreateBlank}
-        cartographAvailable={cartographAvailable}
-      />
     </div>
   );
 }

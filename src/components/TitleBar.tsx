@@ -1,4 +1,5 @@
 import {
+  Circle,
   Columns2,
   Database,
   LayoutGrid,
@@ -25,6 +26,8 @@ interface Props {
   onSearch: () => void;
   onPushSession: () => void;
   onPushTemplate: () => void;
+  onSetLiveSync: (mode: 'off' | 'session' | 'template') => void;
+  liveSyncMode: 'off' | 'session' | 'template';
   cartographAvailable: boolean;
 }
 
@@ -38,6 +41,8 @@ export default function TitleBar({
   onSearch,
   onPushSession,
   onPushTemplate,
+  onSetLiveSync,
+  liveSyncMode,
   cartographAvailable
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,6 +52,8 @@ export default function TitleBar({
     setTimeout(() => document.addEventListener('mousedown', onDown), 0);
     return () => document.removeEventListener('mousedown', onDown);
   }, [menuOpen]);
+
+  const syncActive = liveSyncMode !== 'off';
 
   return (
     <div className="drag-region h-9 bg-ink-950 border-b border-ink-700 flex items-center justify-between select-none">
@@ -95,16 +102,53 @@ export default function TitleBar({
           <div className="relative">
             <ToolButton
               onClick={() => setMenuOpen((v) => !v)}
-              title="Push current note to Cartograph"
-              active={menuOpen}
+              title={syncActive ? `Cartograph: live-syncing as ${liveSyncMode}` : 'Cartograph'}
+              active={menuOpen || syncActive}
             >
               <Database size={14} />
+              {syncActive && (
+                <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              )}
             </ToolButton>
             {menuOpen && (
               <div
-                className="absolute right-0 top-8 z-40 w-52 bg-ink-800 border border-ink-600 rounded-md shadow-2xl p-1"
+                className="absolute right-0 top-8 z-40 w-64 bg-ink-800 border border-ink-600 rounded-md shadow-2xl p-1"
                 onMouseDown={(e) => e.stopPropagation()}
               >
+                <div className="px-2 py-1 text-[10px] font-mono tracking-[0.18em] text-paper-300 border-b border-ink-700/60 mb-1">
+                  LIVE SYNC (this note)
+                </div>
+                <RadioRow
+                  active={liveSyncMode === 'off'}
+                  label="Off"
+                  hint="Local only"
+                  onClick={() => {
+                    onSetLiveSync('off');
+                    setMenuOpen(false);
+                  }}
+                />
+                <RadioRow
+                  active={liveSyncMode === 'session'}
+                  label="Live as session"
+                  hint="→ memory/working"
+                  onClick={() => {
+                    onSetLiveSync('session');
+                    setMenuOpen(false);
+                  }}
+                />
+                <RadioRow
+                  active={liveSyncMode === 'template'}
+                  label="Live as template"
+                  hint="→ memory/procedural"
+                  onClick={() => {
+                    onSetLiveSync('template');
+                    setMenuOpen(false);
+                  }}
+                />
+
+                <div className="px-2 py-1 mt-1 text-[10px] font-mono tracking-[0.18em] text-paper-300 border-t border-ink-700/60 pt-2">
+                  ONE-SHOT PUSH
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -116,7 +160,9 @@ export default function TitleBar({
                   <Upload size={12} className="text-amber-400" />
                   <span className="flex-1">
                     Push as session
-                    <span className="block text-[9px] text-paper-300">→ memory/working</span>
+                    <span className="block text-[9px] text-paper-300">
+                      timestamped → working
+                    </span>
                   </span>
                 </button>
                 <button
@@ -129,8 +175,10 @@ export default function TitleBar({
                 >
                   <Upload size={12} className="text-amber-400" />
                   <span className="flex-1">
-                    Save as template
-                    <span className="block text-[9px] text-paper-300">→ memory/procedural</span>
+                    Push as template
+                    <span className="block text-[9px] text-paper-300">
+                      timestamped → procedural
+                    </span>
                   </span>
                 </button>
               </div>
@@ -165,6 +213,38 @@ export default function TitleBar({
   );
 }
 
+function RadioRow({
+  active,
+  label,
+  hint,
+  onClick
+}: {
+  active: boolean;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={clsx(
+        'w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors text-left',
+        active ? 'bg-amber-500/15 text-amber-300' : 'text-paper-100 hover:bg-ink-700'
+      )}
+    >
+      <Circle
+        size={10}
+        className={active ? 'fill-amber-400 text-amber-400' : 'text-paper-300'}
+      />
+      <span className="flex-1">
+        {label}
+        <span className="block text-[9px] text-paper-300">{hint}</span>
+      </span>
+    </button>
+  );
+}
+
 function ToolButton({
   active,
   onClick,
@@ -182,7 +262,7 @@ function ToolButton({
       onClick={onClick}
       title={title}
       className={clsx(
-        'h-7 w-7 mx-[1px] flex items-center justify-center rounded transition-colors',
+        'h-7 w-7 mx-[1px] flex items-center justify-center rounded transition-colors relative',
         active ? 'text-amber-400 bg-ink-800' : 'text-paper-200 hover:text-paper-50 hover:bg-ink-800'
       )}
     >

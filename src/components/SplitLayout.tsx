@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import TabBar from './TabBar';
 import Editor from './Editor';
 import MarkdownPreview from './MarkdownPreview';
+import StartScreen from './StartScreen';
 import type {
   DragPayload,
   DropEdge,
@@ -39,11 +40,14 @@ interface Props {
   ) => void;
   onSetPaneMode: (paneId: string, mode: PaneMode) => void;
   onDropOnEdge: (payload: DragPayload, targetPaneIdx: number, edge: DropEdge) => void;
+  onSearch: () => void;
   scrollSignals: Record<string, { position: number; token: number }>;
+  titleFocusSignals: Record<string, number>;
+  cartographAvailable: boolean;
 }
 
 export default function SplitLayout(props: Props) {
-  const { layout, panes, notes, vRatio, hRatio, onSetVRatio, onSetHRatio } = props;
+  const { layout, panes, vRatio, hRatio, onSetVRatio, onSetHRatio } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<'v' | 'h' | null>(null);
 
@@ -82,11 +86,7 @@ export default function SplitLayout(props: Props) {
     const first = `${(isV ? vRatio : hRatio) * 100}%`;
     const second = `${(1 - (isV ? vRatio : hRatio)) * 100}%`;
     return (
-      <div
-        ref={containerRef}
-        className="h-full w-full flex"
-        style={{ flexDirection: isV ? 'row' : 'column' }}
-      >
+      <div ref={containerRef} className="h-full w-full flex" style={{ flexDirection: isV ? 'row' : 'column' }}>
         <div style={isV ? { width: first, minWidth: 0 } : { height: first, minHeight: 0 }}>
           {renderPane(panes[0], 0)}
         </div>
@@ -103,7 +103,7 @@ export default function SplitLayout(props: Props) {
     );
   }
 
-  // grid: 2x2
+  // grid
   const top = `${hRatio * 100}%`;
   const bottom = `${(1 - hRatio) * 100}%`;
   const left = `${vRatio * 100}%`;
@@ -112,28 +112,13 @@ export default function SplitLayout(props: Props) {
     <div ref={containerRef} className="h-full w-full flex flex-col">
       <div className="flex" style={{ height: top, minHeight: 0 }}>
         <div style={{ width: left, minWidth: 0 }}>{renderPane(panes[0], 0)}</div>
-        <Divider
-          direction="v"
-          onStart={() => {
-            dragRef.current = 'v';
-          }}
-        />
+        <Divider direction="v" onStart={() => { dragRef.current = 'v'; }} />
         <div style={{ width: right, minWidth: 0 }}>{renderPane(panes[1], 1)}</div>
       </div>
-      <Divider
-        direction="h"
-        onStart={() => {
-          dragRef.current = 'h';
-        }}
-      />
+      <Divider direction="h" onStart={() => { dragRef.current = 'h'; }} />
       <div className="flex" style={{ height: bottom, minHeight: 0 }}>
         <div style={{ width: left, minWidth: 0 }}>{renderPane(panes[2], 2)}</div>
-        <Divider
-          direction="v"
-          onStart={() => {
-            dragRef.current = 'v';
-          }}
-        />
+        <Divider direction="v" onStart={() => { dragRef.current = 'v'; }} />
         <div style={{ width: right, minWidth: 0 }}>{renderPane(panes[3], 3)}</div>
       </div>
     </div>
@@ -164,6 +149,7 @@ function PaneCell({ pane, paneIdx, props }: PaneCellProps) {
     layout,
     notes,
     scrollSignals,
+    titleFocusSignals,
     onSelectNote,
     onCreateNote,
     onDeleteNote,
@@ -173,7 +159,9 @@ function PaneCell({ pane, paneIdx, props }: PaneCellProps) {
     onMoveBetweenPanes,
     onSetPaneMode,
     onUpdateNote,
-    onDropOnEdge
+    onDropOnEdge,
+    onSearch,
+    cartographAvailable
   } = props;
   const paneMode: PaneMode = pane.mode ?? 'edit';
   const paneNotes = pane.noteIds
@@ -181,6 +169,25 @@ function PaneCell({ pane, paneIdx, props }: PaneCellProps) {
     .filter((n): n is Note => !!n);
   const activeNote = paneNotes.find((n) => n.id === pane.activeNoteId) ?? paneNotes[0] ?? null;
   const signal = activeNote ? scrollSignals[activeNote.id] : undefined;
+  const titleFocusSignal = activeNote ? titleFocusSignals[activeNote.id] : undefined;
+
+  const showStart =
+    !!activeNote &&
+    !activeNote.title.trim() &&
+    !activeNote.content.trim() &&
+    layout === 'single' &&
+    paneIdx === 0;
+
+  const bodyOverride = showStart && activeNote ? (
+    <StartScreen
+      allNotes={notes.filter((n) => n.id !== activeNote.id)}
+      onSelectNote={(id) => onSelectNote(pane.id, id)}
+      onSearch={onSearch}
+      cartographAvailable={cartographAvailable}
+    />
+  ) : paneMode === 'preview' && activeNote ? (
+    <MarkdownPreview content={activeNote.content} />
+  ) : undefined;
 
   return (
     <div className="flex flex-col h-full min-h-0 min-w-0">
@@ -202,21 +209,17 @@ function PaneCell({ pane, paneIdx, props }: PaneCellProps) {
         paneIdx={paneIdx}
         paneId={pane.id}
         layout={layout}
-        onDropToCenter={(payload) =>
-          onMoveBetweenPanes(payload, pane.id, null, 'end')
-        }
+        onDropToCenter={(payload) => onMoveBetweenPanes(payload, pane.id, null, 'end')}
         onDropOnEdge={(payload, edge) => onDropOnEdge(payload, paneIdx, edge)}
       >
         {activeNote ? (
-          paneMode === 'preview' ? (
-            <MarkdownPreview content={activeNote.content} />
-          ) : (
-            <Editor
-              note={activeNote}
-              onChange={(u) => onUpdateNote(activeNote.id, u)}
-              scrollSignal={signal}
-            />
-          )
+          <Editor
+            note={activeNote}
+            onChange={(u) => onUpdateNote(activeNote.id, u)}
+            scrollSignal={signal}
+            focusTitleSignal={titleFocusSignal}
+            bodyOverride={bodyOverride}
+          />
         ) : (
           <div className="flex-1 flex items-center justify-center text-paper-200/40 text-xs font-mono p-4 text-center">
             empty pane — drag a tab here or press +
@@ -285,11 +288,8 @@ function PaneBody({ paneIdx: _paneIdx, paneId: _paneId, layout, children, onDrop
         } catch {
           return;
         }
-        if (!edge || edge === 'center') {
-          onDropToCenter(payload);
-        } else {
-          onDropOnEdge(payload, edge);
-        }
+        if (!edge || edge === 'center') onDropToCenter(payload);
+        else onDropOnEdge(payload, edge);
       }}
     >
       {children}
@@ -301,9 +301,7 @@ function PaneBody({ paneIdx: _paneIdx, paneId: _paneId, layout, children, onDrop
 function DropIndicator({ edge }: { edge: DropEdge }) {
   const base =
     'pointer-events-none absolute bg-amber-500/20 border-2 border-amber-400/70 transition-all duration-100';
-  if (edge === 'center') {
-    return <div className={base + ' inset-2'} />;
-  }
+  if (edge === 'center') return <div className={base + ' inset-2'} />;
   const styles: Record<Exclude<DropEdge, 'center'>, string> = {
     top: 'top-0 left-0 right-0 h-1/2',
     bottom: 'bottom-0 left-0 right-0 h-1/2',

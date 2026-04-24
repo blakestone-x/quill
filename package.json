@@ -1,6 +1,6 @@
 {
   "name": "quill",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Quill — a sharper notepad: split panes, inline math, always-on-top, markdown, search, streaming agent",
   "author": "Blake Stone",
   "main": "out/main/index.js",

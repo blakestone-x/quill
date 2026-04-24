@@ -24,6 +24,7 @@ interface Props {
   onCreateNote: (paneId: string) => void;
   onDeleteNote: (paneId: string, noteId: string) => void;
   onColorNote: (id: string, color: string | undefined) => void;
+  onTogglePinNote: (id: string) => void;
   onReorderInPane: (
     paneId: string,
     fromNoteId: string,
@@ -167,6 +168,7 @@ function PaneCell({ pane, paneIdx, props }: PaneCellProps) {
     onCreateNote,
     onDeleteNote,
     onColorNote,
+    onTogglePinNote,
     onReorderInPane,
     onMoveBetweenPanes,
     onSetPaneMode,
@@ -191,6 +193,7 @@ function PaneCell({ pane, paneIdx, props }: PaneCellProps) {
         onCreate={() => onCreateNote(pane.id)}
         onDelete={(id) => onDeleteNote(pane.id, id)}
         onColor={onColorNote}
+        onTogglePin={onTogglePinNote}
         onReorder={(from, to, side) => onReorderInPane(pane.id, from, to, side)}
         onMoveBetweenPanes={(payload, to, side) => onMoveBetweenPanes(payload, pane.id, to, side)}
         onToggleMode={() => onSetPaneMode(pane.id, paneMode === 'edit' ? 'preview' : 'edit')}

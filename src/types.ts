@@ -5,6 +5,9 @@ export interface Note {
   createdAt: number;
   updatedAt: number;
   color?: string;
+  pinned?: boolean;
+  kind?: 'note' | 'template';
+  tags?: string[];
 }
 
 export interface Pane {
@@ -16,16 +19,8 @@ export interface Pane {
 
 export type PaneMode = 'edit' | 'preview';
 
-// Quill supports 1, 2 (horizontal or vertical), or 4 (2x2 grid) panes.
-// Grid pane index layout:
-//   0 | 1
-//   --+--
-//   2 | 3
 export type Layout = 'single' | 'v' | 'h' | 'grid';
-
-// Back-compat alias — old saves used SplitMode.
 export type SplitMode = 'none' | 'horizontal' | 'vertical';
-
 export type DropEdge = 'center' | 'left' | 'right' | 'top' | 'bottom';
 
 export const TAB_COLORS: { label: string; value: string }[] = [

@@ -1,15 +1,18 @@
 import {
+  Columns2,
+  Database,
+  LayoutGrid,
   Minus,
   Pin,
+  Rows2,
   Search,
   Sparkles,
   Square,
-  X,
-  Columns2,
-  Rows2,
-  LayoutGrid
+  Upload,
+  X
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useEffect, useState } from 'react';
 import type { Layout } from '../types';
 
 interface Props {
@@ -20,6 +23,9 @@ interface Props {
   agentOpen: boolean;
   onToggleAgent: () => void;
   onSearch: () => void;
+  onPushSession: () => void;
+  onPushTemplate: () => void;
+  cartographAvailable: boolean;
 }
 
 export default function TitleBar({
@@ -29,8 +35,19 @@ export default function TitleBar({
   onToggleLayout,
   agentOpen,
   onToggleAgent,
-  onSearch
+  onSearch,
+  onPushSession,
+  onPushTemplate,
+  cartographAvailable
 }: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = () => setMenuOpen(false);
+    setTimeout(() => document.addEventListener('mousedown', onDown), 0);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen]);
+
   return (
     <div className="drag-region h-9 bg-ink-950 border-b border-ink-700 flex items-center justify-between select-none">
       <div className="pl-3 flex items-center gap-2">
@@ -44,7 +61,7 @@ export default function TitleBar({
       </div>
 
       <div className="no-drag flex items-center">
-        <ToolButton onClick={onSearch} title="Search all notes (Ctrl+F)">
+        <ToolButton onClick={onSearch} title="Search all notes + agent (Ctrl+F)">
           <Search size={14} />
         </ToolButton>
 
@@ -74,6 +91,53 @@ export default function TitleBar({
 
         <div className="w-px h-4 bg-ink-700 mx-1" />
 
+        {cartographAvailable && (
+          <div className="relative">
+            <ToolButton
+              onClick={() => setMenuOpen((v) => !v)}
+              title="Push current note to Cartograph"
+              active={menuOpen}
+            >
+              <Database size={14} />
+            </ToolButton>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-8 z-40 w-52 bg-ink-800 border border-ink-600 rounded-md shadow-2xl p-1"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPushSession();
+                    setMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-paper-100 hover:bg-ink-700 transition-colors text-left"
+                >
+                  <Upload size={12} className="text-amber-400" />
+                  <span className="flex-1">
+                    Push as session
+                    <span className="block text-[9px] text-paper-300">→ memory/working</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPushTemplate();
+                    setMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-paper-100 hover:bg-ink-700 transition-colors text-left"
+                >
+                  <Upload size={12} className="text-amber-400" />
+                  <span className="flex-1">
+                    Save as template
+                    <span className="block text-[9px] text-paper-300">→ memory/procedural</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <ToolButton active={agentOpen} onClick={onToggleAgent} title="Agent panel (Ctrl+K)">
           <Sparkles size={14} />
         </ToolButton>
@@ -82,10 +146,7 @@ export default function TitleBar({
           onClick={onTogglePin}
           title={pinned ? 'Unpin (Ctrl+P)' : 'Pin to top (Ctrl+P)'}
         >
-          <Pin
-            size={14}
-            className={clsx('transition-transform duration-200', pinned && 'rotate-45')}
-          />
+          <Pin size={14} className={clsx('transition-transform duration-200', pinned && 'rotate-45')} />
         </ToolButton>
 
         <div className="w-px h-4 bg-ink-700 mx-1" />
@@ -122,9 +183,7 @@ function ToolButton({
       title={title}
       className={clsx(
         'h-7 w-7 mx-[1px] flex items-center justify-center rounded transition-colors',
-        active
-          ? 'text-amber-400 bg-ink-800'
-          : 'text-paper-200 hover:text-paper-50 hover:bg-ink-800'
+        active ? 'text-amber-400 bg-ink-800' : 'text-paper-200 hover:text-paper-50 hover:bg-ink-800'
       )}
     >
       {children}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import type { Note } from '../types';
 import { findExpressionBeforeCursor, tryEvaluate } from '../lib/calculator';
+import { autoCorrectBeforeBoundary, isWordBoundary } from '../lib/autocorrect';
 
 interface Props {
   note: Note;
@@ -24,6 +25,12 @@ export default function Editor({
   const lastSignalToken = useRef<number | undefined>(undefined);
   const lastFocusToken = useRef<number | undefined>(undefined);
   const lastNoteIdRef = useRef(note.id);
+  const lastCorrectionRef = useRef<{
+    from: string;
+    to: string;
+    position: number;
+    time: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!flash) return;
@@ -68,34 +75,101 @@ export default function Editor({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key !== '=') return;
-      const ta = e.currentTarget;
-      const cursor = ta.selectionStart;
-      if (cursor !== ta.selectionEnd) return;
-
-      const found = findExpressionBeforeCursor(ta.value, cursor);
-      if (!found) return;
-
-      const result = tryEvaluate(found.expr);
-      if (result === null) return;
-
-      e.preventDefault();
-      const before = ta.value.slice(0, cursor);
-      const after = ta.value.slice(cursor);
-      const insertion = `= ${result}`;
-      const newValue = before + insertion + after;
-
-      onChange({ content: newValue });
-      const newCursor = cursor + insertion.length;
-
-      requestAnimationFrame(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = newCursor;
-          textareaRef.current.selectionEnd = newCursor;
-          textareaRef.current.focus();
+      // Ctrl+Z within 5s of an autocorrect → undo just the correction.
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === 'z' || e.key === 'Z')
+      ) {
+        const c = lastCorrectionRef.current;
+        if (c && Date.now() - c.time < 5000) {
+          const ta = e.currentTarget;
+          const expected = c.to;
+          const actual = ta.value.slice(c.position, c.position + expected.length);
+          if (actual === expected) {
+            e.preventDefault();
+            const newText =
+              ta.value.slice(0, c.position) +
+              c.from +
+              ta.value.slice(c.position + expected.length);
+            onChange({ content: newText });
+            const newCursor = c.position + c.from.length;
+            requestAnimationFrame(() => {
+              if (textareaRef.current) {
+                textareaRef.current.selectionStart = newCursor;
+                textareaRef.current.selectionEnd = newCursor;
+                textareaRef.current.focus();
+              }
+            });
+            lastCorrectionRef.current = null;
+            return;
+          }
         }
-      });
-      setFlash(true);
+      }
+
+      // Inline calculator: 4+5+6=  →  4+5+6= 15
+      if (e.key === '=') {
+        const ta = e.currentTarget;
+        const cursor = ta.selectionStart;
+        if (cursor !== ta.selectionEnd) return;
+
+        const found = findExpressionBeforeCursor(ta.value, cursor);
+        if (!found) return;
+        const result = tryEvaluate(found.expr);
+        if (result === null) return;
+
+        e.preventDefault();
+        const before = ta.value.slice(0, cursor);
+        const after = ta.value.slice(cursor);
+        const insertion = `= ${result}`;
+        const newValue = before + insertion + after;
+        onChange({ content: newValue });
+        const newCursor = cursor + insertion.length;
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = newCursor;
+            textareaRef.current.selectionEnd = newCursor;
+            textareaRef.current.focus();
+          }
+        });
+        setFlash(true);
+        return;
+      }
+
+      // Autocorrect on word boundary
+      const isBoundaryKey =
+        (e.key.length === 1 && isWordBoundary(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) ||
+        (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey);
+      if (isBoundaryKey) {
+        const ta = e.currentTarget;
+        const cursor = ta.selectionStart;
+        if (cursor !== ta.selectionEnd) return;
+        const correction = autoCorrectBeforeBoundary(ta.value, cursor);
+        if (!correction) return;
+
+        e.preventDefault();
+        const inserted = e.key === 'Enter' ? '\n' : e.key;
+        const next =
+          correction.newText.slice(0, correction.newCursor) +
+          inserted +
+          correction.newText.slice(correction.newCursor);
+        onChange({ content: next });
+        const finalCursor = correction.newCursor + inserted.length;
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = finalCursor;
+            textareaRef.current.selectionEnd = finalCursor;
+            textareaRef.current.focus();
+          }
+        });
+        lastCorrectionRef.current = {
+          from: correction.from,
+          to: correction.to,
+          position: correction.start,
+          time: Date.now()
+        };
+      }
     },
     [onChange]
   );

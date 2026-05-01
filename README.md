@@ -44,3 +44,13 @@ Notes + settings + API key: `%APPDATA%\Quill\quill-data.json`. Delete to reset.
 ## Stack
 
 Electron 33, Vite, React 18, TypeScript, Tailwind, mathjs, @anthropic-ai/sdk.
+
+## Companion (phone app)
+
+A standalone Progressive Web App lives at [`mobile/`](./mobile/README.md):
+records conversations, transcribes with speaker diarization, runs Claude
+analysis (summary / action items / decisions / quotes / next steps),
+auto-emails a recap, and exports Quill-format `.md` notes you drop into
+`%APPDATA%\Quill\notes\`. No build step — host the folder anywhere with
+HTTPS and install to the home screen.
+

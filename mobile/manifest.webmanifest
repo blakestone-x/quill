@@ -1,0 +1,31 @@
+{
+  "name": "Quill Companion",
+  "short_name": "Quill",
+  "description": "Phone companion for Quill — record conversations, transcribe with speakers, summarize with Claude.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#13100d",
+  "theme_color": "#13100d",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Start recording",
+      "short_name": "Record",
+      "description": "Open the app and start recording immediately",
+      "url": "./index.html?action=start"
+    }
+  ],
+  "protocol_handlers": [
+    { "protocol": "web+quill", "url": "./index.html?action=%s" }
+  ]
+}

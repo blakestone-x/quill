@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#13100d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Quill Companion" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+    <link rel="apple-touch-icon" href="./icons/icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>Quill Companion</title>
+  </head>
+  <body>
+    <div id="app" class="screen-record">
+      <!-- ── Top bar ── -->
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span class="brand-name">Quill</span>
+          <span class="brand-sub">companion</span>
+        </div>
+        <div class="topbar-actions">
+          <button id="nav-sessions" class="icon-btn" aria-label="Sessions" title="Sessions">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          </button>
+          <button id="nav-settings" class="icon-btn" aria-label="Settings" title="Settings">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- ── Record screen ── -->
+      <section class="screen record-screen" data-screen="record">
+        <div class="record-status">
+          <div class="status-dot" id="status-dot"></div>
+          <div class="status-label" id="status-label">Ready</div>
+        </div>
+
+        <div class="timer" id="timer">00:00</div>
+
+        <canvas id="meter" class="meter" width="320" height="80"></canvas>
+
+        <div class="record-controls">
+          <button id="cancel-btn" class="btn btn-ghost" hidden>Cancel</button>
+          <button id="record-btn" class="record-btn" aria-label="Start recording">
+            <span class="record-btn-inner"></span>
+          </button>
+          <button id="pause-btn" class="btn btn-ghost" hidden>Pause</button>
+        </div>
+
+        <div class="hint" id="record-hint">
+          Tap to record. Triple-tap anywhere to start hands-free.
+        </div>
+      </section>
+
+      <!-- ── Processing screen ── -->
+      <section class="screen processing-screen" data-screen="processing" hidden>
+        <div class="spinner"></div>
+        <div class="processing-step" id="processing-step">Uploading audio…</div>
+        <div class="processing-progress">
+          <div class="processing-bar" id="processing-bar"></div>
+        </div>
+        <div class="processing-detail" id="processing-detail"></div>
+        <button id="processing-cancel" class="btn btn-ghost">Cancel</button>
+      </section>
+
+      <!-- ── Review screen ── -->
+      <section class="screen review-screen" data-screen="review" hidden>
+        <div class="review-header">
+          <input id="review-title" class="review-title" placeholder="Conversation title" />
+          <div class="review-meta" id="review-meta"></div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="summary">Summary</button>
+          <button class="tab" data-tab="actions">Actions</button>
+          <button class="tab" data-tab="transcript">Transcript</button>
+          <button class="tab" data-tab="raw">Raw</button>
+        </div>
+
+        <div class="tab-panels">
+          <div class="tab-panel active" data-panel="summary" id="panel-summary"></div>
+          <div class="tab-panel" data-panel="actions" id="panel-actions"></div>
+          <div class="tab-panel" data-panel="transcript" id="panel-transcript"></div>
+          <div class="tab-panel" data-panel="raw" id="panel-raw"></div>
+        </div>
+
+        <div class="review-actions">
+          <button id="rename-speakers-btn" class="btn btn-ghost">Rename speakers</button>
+          <button id="email-btn" class="btn btn-ghost">Email recap</button>
+          <button id="export-btn" class="btn btn-primary">Export to Quill</button>
+        </div>
+      </section>
+
+      <!-- ── Sessions screen ── -->
+      <section class="screen sessions-screen" data-screen="sessions" hidden>
+        <h2 class="screen-title">Sessions</h2>
+        <div class="sessions-list" id="sessions-list"></div>
+      </section>
+
+      <!-- ── Settings screen ── -->
+      <section class="screen settings-screen" data-screen="settings" hidden>
+        <h2 class="screen-title">Settings</h2>
+
+        <div class="settings-group">
+          <h3>API keys</h3>
+          <label class="field">
+            <span>AssemblyAI key <em>(transcription + diarization)</em></span>
+            <input id="key-assemblyai" type="password" autocomplete="off" placeholder="..." />
+          </label>
+          <label class="field">
+            <span>Anthropic key <em>(Claude analysis)</em></span>
+            <input id="key-anthropic" type="password" autocomplete="off" placeholder="sk-ant-..." />
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Email recap</h3>
+          <label class="field">
+            <span>Send recap to</span>
+            <input id="email-to" type="email" autocomplete="email" placeholder="bstone@..." />
+          </label>
+          <label class="field">
+            <span>Delivery method</span>
+            <select id="email-method">
+              <option value="off">Off — no auto email</option>
+              <option value="resend">Resend API (auto)</option>
+              <option value="webhook">Webhook (Make / Zapier / n8n)</option>
+              <option value="mailto">mailto: prefilled (manual tap)</option>
+            </select>
+          </label>
+          <label class="field" data-method-show="resend">
+            <span>Resend API key</span>
+            <input id="key-resend" type="password" autocomplete="off" placeholder="re_..." />
+          </label>
+          <label class="field" data-method-show="resend">
+            <span>From address <em>(must be verified on Resend)</em></span>
+            <input id="email-from" type="email" placeholder="recap@yourdomain.com" />
+          </label>
+          <label class="field" data-method-show="webhook">
+            <span>Webhook URL</span>
+            <input id="email-webhook" type="url" placeholder="https://hook.example.com/..." />
+          </label>
+          <label class="field-row">
+            <input id="email-auto" type="checkbox" />
+            <span>Auto-send recap when analysis finishes</span>
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Secret activators</h3>
+          <p class="settings-help">
+            Trigger a recording without unlocking the app. Phones don't expose the
+            real power button to web apps — pair these with an iOS Shortcut or
+            Tasker macro that opens
+            <code id="deep-link-display">…?action=start</code>.
+          </p>
+          <label class="field-row">
+            <input id="act-tap" type="checkbox" />
+            <span>Triple-tap anywhere to start</span>
+          </label>
+          <label class="field-row">
+            <input id="act-shake" type="checkbox" />
+            <span>Shake phone to start</span>
+          </label>
+          <label class="field-row">
+            <input id="act-volume" type="checkbox" />
+            <span>Volume-key combo (best-effort, app must be focused)</span>
+          </label>
+          <label class="field-row">
+            <input id="act-deeplink-autostart" type="checkbox" />
+            <span>?action=start in URL auto-records</span>
+          </label>
+          <label class="field-row">
+            <input id="act-haptic" type="checkbox" />
+            <span>Haptic feedback when activated</span>
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Analysis</h3>
+          <label class="field">
+            <span>Claude model</span>
+            <select id="claude-model">
+              <option value="claude-sonnet-4-6">Sonnet 4.6 — best quality (default)</option>
+              <option value="claude-opus-4-7">Opus 4.7 — deepest analysis</option>
+              <option value="claude-haiku-4-5-20251001">Haiku 4.5 — fast + cheap</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Speaker name hints <em>(comma-separated, helps Claude label)</em></span>
+            <input id="speaker-hints" placeholder="Blake, Sam, ..." />
+          </label>
+          <label class="field">
+            <span>Default tags for exports</span>
+            <input id="default-tags" placeholder="conversation, meeting" />
+          </label>
+        </div>
+
+        <div class="settings-group">
+          <h3>Storage</h3>
+          <p class="settings-help" id="storage-detail">…</p>
+          <button id="purge-btn" class="btn btn-danger">Purge all sessions + audio</button>
+        </div>
+
+        <div class="settings-footer">
+          Quill Companion · keys stored in your browser only · data leaves only when you transcribe / analyze / email.
+        </div>
+      </section>
+
+      <!-- ── Toast ── -->
+      <div id="toast" class="toast" hidden></div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

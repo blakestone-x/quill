@@ -80,13 +80,18 @@ export default function AmbientCockpit() {
   async function start() {
     setError(null);
     try {
+      const coordinatorUrl = (await window.quill.getStore<string>('coordinatorUrl')) ?? undefined;
       const ctrl = new CaptureController({
         engine,
         deepgramKey: deepgramKey || undefined,
         captureSystemAudio,
         deviceId: await deviceId(),
         newId: () => nanoid(),
-        now: () => Date.now()
+        now: () => Date.now(),
+        coordinatorUrl,
+        onStolen: () => {
+          void stop();
+        }
       });
       await ctrl.start();
       ctrlRef.current = ctrl;

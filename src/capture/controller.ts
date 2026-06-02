@@ -7,6 +7,7 @@
 import { AmbientCapture } from './audio';
 import { DeepgramTranscriber, SidecarTranscriber } from './transcribers';
 import { captureStore } from '../store/capture';
+import { CoordinatorClient } from '../sync/coordinator-client';
 import type { Transcriber, TranscriberConfig, TranscriptChunk } from '../core/providers';
 import type { CaptureSession, SessionFlag, TranscriptSegment } from '../core/domain';
 
@@ -22,10 +23,15 @@ export interface CaptureControllerOptions {
   persist?: boolean;
   onLevel?: (rms: number) => void;
   onSpeaking?: (speaking: boolean) => void;
+  /** VPS coordinator URL for single-recorder coordination + sync (optional) */
+  coordinatorUrl?: string;
+  /** another device claimed the recorder — stop local capture */
+  onStolen?: () => void;
 }
 
 export class CaptureController {
   private capture: AmbientCapture | null = null;
+  private client: CoordinatorClient | null = null;
   private sessionId = '';
   private seq = 0;
 
@@ -44,6 +50,21 @@ export class CaptureController {
     this.seq = 0;
     captureStore.getState().startSession(session);
     if (this.persist) void window.quill.db.createSession(session);
+
+    if (this.opts.coordinatorUrl) {
+      this.client = new CoordinatorClient({
+        url: this.opts.coordinatorUrl,
+        deviceId: this.opts.deviceId,
+        deviceKind: 'desktop',
+        onStolen: () => this.opts.onStolen?.()
+      });
+      try {
+        await this.client.connect();
+        this.client.claimRecord();
+      } catch {
+        this.client = null; // coordinator optional — capture still works locally
+      }
+    }
 
     this.capture = new AmbientCapture({
       transcriber: this.makeTranscriber(),
@@ -71,6 +92,11 @@ export class CaptureController {
   }
 
   async stop(): Promise<void> {
+    if (this.client) {
+      this.client.releaseRecord();
+      this.client.close();
+      this.client = null;
+    }
     if (this.capture) {
       await this.capture.stop();
       this.capture = null;
@@ -113,6 +139,7 @@ export class CaptureController {
     captureStore.getState().upsertSegment(seg);
     if (c.final) {
       if (this.persist) void window.quill.db.addSegment(seg);
+      this.client?.sendSegment(this.sessionId, seg);
       this.seq++;
     }
   }

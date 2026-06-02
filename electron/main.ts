@@ -9,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync
 } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
 
 const isDev = !app.isPackaged;
@@ -58,7 +58,7 @@ function queueSaveSettings() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      atomicWrite(settingsPath, JSON.stringify(settings, null, 2));
     } catch (e) {
       console.error('Failed to save settings:', e);
     }
@@ -77,6 +77,17 @@ function notePath(id: string): string | null {
 function agentLogPath(id: string): string | null {
   const s = safeId(id);
   return s ? join(agentLogDir, `${s}.md`) : null;
+}
+
+// Crash-safe write: write a temp file in the same directory, then rename over
+// the target (rename is atomic on the same filesystem). Prevents partial or
+// corrupt files if the app dies mid-write. (Build directive M0.)
+function atomicWrite(filePath: string, data: string): void {
+  const dir = dirname(filePath);
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, `.${basename(filePath)}.tmp-${process.pid}-${Date.now()}`);
+  writeFileSync(tmp, data);
+  renameSync(tmp, filePath);
 }
 
 // One-time migration from legacy quill-data.json to v1 layout.
@@ -114,7 +125,7 @@ function migrateFromLegacyIfNeeded() {
     front['kind'] = 'note';
     const body = typeof n['content'] === 'string' ? n['content'] : '';
     const p = notePath(id);
-    if (p) writeFileSync(p, buildMarkdown(front, body));
+    if (p) atomicWrite(p, buildMarkdown(front, body));
   }
 
   // Move the rest into settings
@@ -292,8 +303,7 @@ ipcMain.handle('notes:read', (_e, id: string) => {
 ipcMain.handle('notes:write', (_e, id: string, content: string) => {
   const p = notePath(id);
   if (!p) return false;
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, content);
+  atomicWrite(p, content);
   return true;
 });
 
@@ -315,8 +325,7 @@ ipcMain.handle('agent-log:read', (_e, id: string) => {
 ipcMain.handle('agent-log:write', (_e, id: string, content: string) => {
   const p = agentLogPath(id);
   if (!p) return false;
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, content);
+  atomicWrite(p, content);
   return true;
 });
 
@@ -354,7 +363,7 @@ ipcMain.handle(
         created: new Date().toISOString(),
         ...(payload.frontmatter ?? {})
       };
-      writeFileSync(filepath, buildMarkdown(front, payload.body));
+      atomicWrite(filepath, buildMarkdown(front, payload.body));
       return { ok: true, path: filepath };
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -393,7 +402,7 @@ ipcMain.handle(
         updated: new Date().toISOString(),
         ...(payload.frontmatter ?? {})
       };
-      writeFileSync(filepath, buildMarkdown(front, payload.body));
+      atomicWrite(filepath, buildMarkdown(front, payload.body));
       return { ok: true, path: filepath };
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e) };

@@ -9,6 +9,7 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "start": "electron-vite preview",
     "dist": "electron-vite build && electron-builder",
     "dist:win": "electron-vite build && electron-builder --win",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "better-sqlite3": "^12.10.0",
     "clsx": "^2.1.1",
     "electron-updater": "^6.3.9",
     "lucide-react": "^0.460.0",
@@ -26,6 +28,8 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

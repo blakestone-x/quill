@@ -1,35 +1,66 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { Mic, MicOff, Square, Flag, Radio, X } from 'lucide-react';
+import { Mic, MicOff, Square, Flag, Radio, X, Settings } from 'lucide-react';
 import { useCapture } from '../store/capture-react';
+import { captureStore } from '../store/capture';
 import { CaptureController } from '../capture/controller';
+import type { ConsentMode } from '../core/domain';
+
+type Engine = 'sidecar' | 'deepgram';
 
 // Self-contained ambient capture panel, mounted as a fixed overlay in main.tsx
-// (no App.tsx coupling). Record / stop / mute-killswitch / flag + live transcript.
+// (no App.tsx coupling). Record / stop / mute-killswitch / flag + live transcript,
+// with inline config (engine, key, system audio, consent posture).
 export default function AmbientCockpit() {
   const [open, setOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [engine, setEngine] = useState<Engine>('sidecar');
+  const [deepgramKey, setDeepgramKey] = useState('');
+  const [captureSystemAudio, setCaptureSystemAudio] = useState(true);
+
   const status = useCapture((s) => s.status);
   const segments = useCapture((s) => s.segments);
+  const consentMode = useCapture((s) => s.consentMode);
   const ctrlRef = useRef<CaptureController | null>(null);
 
   const recording = status !== 'idle';
   const muted = status === 'muted';
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.quill) return;
+    void (async () => {
+      const e = await window.quill.getStore<Engine>('sttEngine');
+      const k = await window.quill.getStore<string>('deepgramKey');
+      const sys = await window.quill.getStore<boolean>('captureSystemAudio');
+      if (e) setEngine(e);
+      if (typeof k === 'string') setDeepgramKey(k);
+      if (typeof sys === 'boolean') setCaptureSystemAudio(sys);
+    })();
+  }, []);
+
+  function persist(key: string, value: unknown) {
+    if (typeof window !== 'undefined' && window.quill) void window.quill.setStore(key, value);
+  }
+
+  async function deviceId(): Promise<string> {
+    if (typeof window === 'undefined' || !window.quill) return 'desktop';
+    let id = await window.quill.getStore<string>('deviceId');
+    if (!id) {
+      id = `desktop-${nanoid(6)}`;
+      persist('deviceId', id);
+    }
+    return id;
+  }
+
   async function start() {
     setError(null);
     try {
-      const engine = ((await window.quill.getStore<string>('sttEngine')) ?? 'sidecar') as
-        | 'sidecar'
-        | 'deepgram';
-      const deepgramKey = (await window.quill.getStore<string>('deepgramKey')) ?? undefined;
-      const captureSystemAudio = (await window.quill.getStore<boolean>('captureSystemAudio')) ?? true;
-      const deviceId = (await window.quill.getStore<string>('deviceId')) ?? 'desktop';
       const ctrl = new CaptureController({
         engine,
-        deepgramKey,
+        deepgramKey: deepgramKey || undefined,
         captureSystemAudio,
-        deviceId,
+        deviceId: await deviceId(),
         newId: () => nanoid(),
         now: () => Date.now()
       });
@@ -45,6 +76,10 @@ export default function AmbientCockpit() {
     ctrlRef.current = null;
   }
 
+  function setConsent(m: ConsentMode) {
+    captureStore.getState().setConsentMode(m);
+  }
+
   return (
     <>
       <button
@@ -52,21 +87,87 @@ export default function AmbientCockpit() {
         onClick={() => setOpen((o) => !o)}
         className="no-drag fixed bottom-3 right-3 z-50 flex h-9 items-center gap-1.5 rounded-full bg-[#dcb05a] px-3 text-xs font-medium text-black shadow-lg"
       >
-        <Radio size={14} /> {recording ? 'Live' : 'Quill'}
+        <Radio size={14} /> {recording ? (muted ? 'Muted' : 'Live') : 'Quill'}
       </button>
 
       {open && (
         <div className="no-drag fixed bottom-14 right-3 z-50 flex w-80 flex-col gap-2 rounded-lg border border-white/10 bg-[#13100d] p-3 text-white shadow-2xl">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#dcb05a]">Ambient cockpit</span>
-            <button
-              aria-label="Close"
-              onClick={() => setOpen(false)}
-              className="text-white/40 hover:text-white/80"
-            >
-              <X size={14} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                aria-label="Settings"
+                onClick={() => setShowSettings((s) => !s)}
+                className="text-white/40 hover:text-white/80"
+              >
+                <Settings size={13} />
+              </button>
+              <button
+                aria-label="Close"
+                onClick={() => setOpen(false)}
+                className="text-white/40 hover:text-white/80"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
+
+          {showSettings && (
+            <div className="flex flex-col gap-1.5 rounded bg-black/30 p-2 text-[11px] text-white/70">
+              <label className="flex items-center justify-between gap-2">
+                Engine
+                <select
+                  value={engine}
+                  onChange={(e) => {
+                    const v = e.target.value as Engine;
+                    setEngine(v);
+                    persist('sttEngine', v);
+                  }}
+                  className="rounded bg-white/10 px-1 py-0.5 text-white"
+                >
+                  <option value="sidecar">Local sidecar</option>
+                  <option value="deepgram">Deepgram (cloud)</option>
+                </select>
+              </label>
+              {engine === 'deepgram' && (
+                <label className="flex items-center justify-between gap-2">
+                  Key
+                  <input
+                    type="password"
+                    value={deepgramKey}
+                    onChange={(e) => {
+                      setDeepgramKey(e.target.value);
+                      persist('deepgramKey', e.target.value);
+                    }}
+                    className="w-36 rounded bg-white/10 px-1 py-0.5 text-white"
+                  />
+                </label>
+              )}
+              <label className="flex items-center justify-between gap-2">
+                Capture system audio
+                <input
+                  type="checkbox"
+                  checked={captureSystemAudio}
+                  onChange={(e) => {
+                    setCaptureSystemAudio(e.target.checked);
+                    persist('captureSystemAudio', e.target.checked);
+                  }}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-2">
+                Consent
+                <select
+                  value={consentMode}
+                  onChange={(e) => setConsent(e.target.value as ConsentMode)}
+                  className="rounded bg-white/10 px-1 py-0.5 text-white"
+                >
+                  <option value="work-restricted">Work-restricted</option>
+                  <option value="disclosed">Disclosed</option>
+                  <option value="personal">Personal</option>
+                </select>
+              </label>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             {!recording ? (

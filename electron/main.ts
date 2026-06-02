@@ -24,6 +24,7 @@ import type {
 
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
+let barWindow: BrowserWindow | null = null;
 
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
@@ -269,6 +270,40 @@ function createWindow() {
   }
 }
 
+function createBarWindow(): void {
+  if (barWindow && !barWindow.isDestroyed()) {
+    barWindow.show();
+    return;
+  }
+  barWindow = new BrowserWindow({
+    width: 420,
+    height: 52,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+  barWindow.setAlwaysOnTop(true, 'screen-saver');
+  if (isDev && process.env['ELECTRON_RENDERER_URL']) {
+    barWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/bar.html`);
+  } else {
+    barWindow.loadFile(join(__dirname, '../renderer/bar.html'));
+  }
+  barWindow.once('ready-to-show', () => barWindow?.show());
+  barWindow.on('closed', () => {
+    barWindow = null;
+  });
+}
+
 function toggleMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
@@ -296,6 +331,24 @@ ipcMain.handle('window:set-always-on-top', (_e, flag: boolean) => {
   return !!mainWindow?.isAlwaysOnTop();
 });
 ipcMain.handle('window:is-always-on-top', () => !!mainWindow?.isAlwaysOnTop());
+
+// ── Floating bar (pop-out remote) ──
+ipcMain.handle('bar:popout', () => {
+  createBarWindow();
+  mainWindow?.minimize();
+});
+ipcMain.handle('bar:close', () => {
+  if (barWindow && !barWindow.isDestroyed()) barWindow.close();
+  barWindow = null;
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.focus();
+});
+ipcMain.handle('bar:command', (_e, type: string) => {
+  mainWindow?.webContents.send('bar:command', type);
+});
+ipcMain.handle('capture:state', (_e, state: unknown) => {
+  if (barWindow && !barWindow.isDestroyed()) barWindow.webContents.send('capture:state', state);
+});
 
 // ── Settings IPC (key/value) ──
 ipcMain.handle('settings:get', (_e, key: string) => settings[key]);

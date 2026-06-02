@@ -24,7 +24,10 @@ export default defineConfig({
     plugins: [react()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'index.html') }
+        input: {
+          index: resolve(__dirname, 'index.html'),
+          bar: resolve(__dirname, 'bar.html')
+        }
       }
     }
   }

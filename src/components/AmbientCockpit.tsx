@@ -39,6 +39,30 @@ export default function AmbientCockpit() {
     })();
   }, []);
 
+  // Floating-bar command relay (capture runs here; the bar is a remote).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.quill?.bar) return;
+    return window.quill.bar.onCommand((type) => {
+      const ctrl = ctrlRef.current;
+      if (type === 'mute') ctrl?.toggleMute();
+      else if (type === 'flag') ctrl?.flag();
+      else if (type === 'stop')
+        void ctrl?.stop().then(() => {
+          ctrlRef.current = null;
+        });
+      else if (type === 'return') void window.quill.bar.close();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.quill?.bar) return;
+    const finals = segments.filter((s) => s.final);
+    void window.quill.bar.sendState({
+      status,
+      lastLine: finals.length ? finals[finals.length - 1].text : ''
+    });
+  }, [status, segments]);
+
   function persist(key: string, value: unknown) {
     if (typeof window !== 'undefined' && window.quill) void window.quill.setStore(key, value);
   }
@@ -196,6 +220,13 @@ export default function AmbientCockpit() {
                   className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1 text-xs text-white"
                 >
                   <Flag size={13} /> Flag
+                </button>
+                <button
+                  onClick={() => void window.quill.bar.popout()}
+                  className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1 text-xs text-white"
+                  aria-label="Pop out bar"
+                >
+                  <Radio size={13} /> Bar
                 </button>
               </>
             )}

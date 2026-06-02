@@ -100,6 +100,25 @@ const api = {
       ipcRenderer.invoke('db:consent:log', entry) as Promise<boolean>
   },
 
+  // floating bar
+  bar: {
+    popout: () => ipcRenderer.invoke('bar:popout'),
+    close: () => ipcRenderer.invoke('bar:close'),
+    command: (type: string) => ipcRenderer.invoke('bar:command', type),
+    onCommand: (cb: (type: string) => void): (() => void) => {
+      const h = (_e: unknown, t: string) => cb(t);
+      ipcRenderer.on('bar:command', h);
+      return () => ipcRenderer.removeListener('bar:command', h);
+    },
+    sendState: (state: { status: string; lastLine?: string }) =>
+      ipcRenderer.invoke('capture:state', state),
+    onState: (cb: (s: { status: string; lastLine?: string }) => void): (() => void) => {
+      const h = (_e: unknown, s: { status: string; lastLine?: string }) => cb(s);
+      ipcRenderer.on('capture:state', h);
+      return () => ipcRenderer.removeListener('capture:state', h);
+    }
+  },
+
   // cartograph
   cartographAvailable: () => ipcRenderer.invoke('cartograph:available') as Promise<boolean>,
   cartographRoot: () => ipcRenderer.invoke('cartograph:root') as Promise<string>,

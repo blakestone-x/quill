@@ -20,6 +20,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Quill
 asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
 publish:
   provider: github
   owner: blakestone-x

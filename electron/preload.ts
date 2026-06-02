@@ -1,4 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  CaptureSession,
+  ConsentLogEntry,
+  Extraction,
+  ExtractionStatus,
+  SessionFlag,
+  TranscriptSegment
+} from '../src/core/domain';
 
 export type UpdaterStatus =
   | { kind: 'available'; version: string }
@@ -62,6 +70,33 @@ const api = {
   readAgentLog: (id: string) => ipcRenderer.invoke('agent-log:read', id) as Promise<string | null>,
   writeAgentLog: (id: string, content: string) =>
     ipcRenderer.invoke('agent-log:write', id, content) as Promise<boolean>,
+
+  // ambient store
+  db: {
+    createSession: (s: CaptureSession) =>
+      ipcRenderer.invoke('db:session:create', s) as Promise<boolean>,
+    endSession: (id: string, endedAt: number) =>
+      ipcRenderer.invoke('db:session:end', id, endedAt) as Promise<boolean>,
+    addSegment: (seg: TranscriptSegment) =>
+      ipcRenderer.invoke('db:segment:add', seg) as Promise<boolean>,
+    listSegments: (sessionId: string) =>
+      ipcRenderer.invoke('db:segment:list', sessionId) as Promise<TranscriptSegment[]>,
+    unsyncedSegments: (limit?: number) =>
+      ipcRenderer.invoke('db:segment:unsynced', limit) as Promise<TranscriptSegment[]>,
+    markSynced: (ids: string[]) =>
+      ipcRenderer.invoke('db:segment:markSynced', ids) as Promise<boolean>,
+    addFlag: (f: SessionFlag) => ipcRenderer.invoke('db:flag:add', f) as Promise<boolean>,
+    listFlags: (sessionId: string) =>
+      ipcRenderer.invoke('db:flag:list', sessionId) as Promise<SessionFlag[]>,
+    addExtraction: (x: Extraction) =>
+      ipcRenderer.invoke('db:extraction:add', x) as Promise<boolean>,
+    listExtractions: (sessionId: string, status?: ExtractionStatus) =>
+      ipcRenderer.invoke('db:extraction:list', sessionId, status) as Promise<Extraction[]>,
+    setExtractionStatus: (id: string, status: ExtractionStatus) =>
+      ipcRenderer.invoke('db:extraction:set-status', id, status) as Promise<boolean>,
+    logConsent: (entry: ConsentLogEntry) =>
+      ipcRenderer.invoke('db:consent:log', entry) as Promise<boolean>
+  },
 
   // cartograph
   cartographAvailable: () => ipcRenderer.invoke('cartograph:available') as Promise<boolean>,

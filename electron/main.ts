@@ -11,6 +11,16 @@ import {
 } from 'fs';
 import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
+import { QuillDB } from './db/store';
+import type Database from 'better-sqlite3';
+import type {
+  CaptureSession,
+  ConsentLogEntry,
+  Extraction,
+  ExtractionStatus,
+  SessionFlag,
+  TranscriptSegment
+} from '../src/core/domain';
 
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -27,6 +37,20 @@ const legacyBackupPath = join(userDataDir, 'quill-data.json.pre-v1.backup');
 
 mkdirSync(notesDir, { recursive: true });
 mkdirSync(agentLogDir, { recursive: true });
+
+// Local ambient store (better-sqlite3). Lazy-required + guarded so a missing or
+// wrong-ABI native build disables the store rather than blocking app startup.
+// Build it for Electron with `npm run rebuild:electron` (dist:win auto-rebuilds).
+let quillDb: QuillDB | null = null;
+function initDb(): void {
+  try {
+    const DatabaseCtor = require('better-sqlite3') as new (path: string) => Database.Database;
+    quillDb = new QuillDB(new DatabaseCtor(join(userDataDir, 'quill.db')));
+  } catch (e) {
+    console.error('[quill] SQLite store disabled (run npm run rebuild:electron):', e);
+    quillDb = null;
+  }
+}
 
 interface Settings {
   schemaVersion?: number;
@@ -329,6 +353,60 @@ ipcMain.handle('agent-log:write', (_e, id: string, content: string) => {
   return true;
 });
 
+// ── Ambient DB IPC (sessions / segments / flags / extractions / consent) ──
+ipcMain.handle('db:session:create', (_e, s: CaptureSession) => {
+  if (!quillDb) return false;
+  quillDb.createSession(s);
+  return true;
+});
+ipcMain.handle('db:session:end', (_e, id: string, endedAt: number) => {
+  if (!quillDb) return false;
+  quillDb.endSession(id, endedAt);
+  return true;
+});
+ipcMain.handle('db:segment:add', (_e, seg: TranscriptSegment) => {
+  if (!quillDb) return false;
+  quillDb.addSegment(seg);
+  return true;
+});
+ipcMain.handle('db:segment:list', (_e, sessionId: string) =>
+  quillDb ? quillDb.listSegments(sessionId) : []
+);
+ipcMain.handle('db:segment:unsynced', (_e, limit?: number) =>
+  quillDb ? quillDb.unsyncedSegments(limit) : []
+);
+ipcMain.handle('db:segment:markSynced', (_e, ids: string[]) => {
+  if (!quillDb) return false;
+  quillDb.markSynced(ids);
+  return true;
+});
+ipcMain.handle('db:flag:add', (_e, f: SessionFlag) => {
+  if (!quillDb) return false;
+  quillDb.addFlag(f);
+  return true;
+});
+ipcMain.handle('db:flag:list', (_e, sessionId: string) =>
+  quillDb ? quillDb.listFlags(sessionId) : []
+);
+ipcMain.handle('db:extraction:add', (_e, x: Extraction) => {
+  if (!quillDb) return false;
+  quillDb.addExtraction(x);
+  return true;
+});
+ipcMain.handle('db:extraction:list', (_e, sessionId: string, status?: ExtractionStatus) =>
+  quillDb ? quillDb.listExtractions(sessionId, status) : []
+);
+ipcMain.handle('db:extraction:set-status', (_e, id: string, status: ExtractionStatus) => {
+  if (!quillDb) return false;
+  quillDb.setExtractionStatus(id, status);
+  return true;
+});
+ipcMain.handle('db:consent:log', (_e, entry: ConsentLogEntry) => {
+  if (!quillDb) return false;
+  quillDb.logConsent(entry);
+  return true;
+});
+
 // ── Cartograph IPC ──
 ipcMain.handle('cartograph:available', () => cartographAvailable());
 ipcMain.handle('cartograph:root', () => cartographRoot());
@@ -560,6 +638,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   migrateFromLegacyIfNeeded();
   createWindow();
+  initDb();
 
   const registered = globalShortcut.register('CommandOrControl+Shift+Q', toggleMainWindow);
   if (!registered) console.warn('Failed to register global shortcut Ctrl+Shift+Q');

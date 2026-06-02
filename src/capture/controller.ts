@@ -8,6 +8,7 @@ import { AmbientCapture } from './audio';
 import { DeepgramTranscriber, SidecarTranscriber } from './transcribers';
 import { captureStore } from '../store/capture';
 import { CoordinatorClient } from '../sync/coordinator-client';
+import { redactPII } from '../core/redaction';
 import type { Transcriber, TranscriberConfig, TranscriptChunk } from '../core/providers';
 import type { CaptureSession, SessionFlag, TranscriptSegment } from '../core/domain';
 
@@ -139,7 +140,8 @@ export class CaptureController {
     captureStore.getState().upsertSegment(seg);
     if (c.final) {
       if (this.persist) void window.quill.db.addSegment(seg);
-      this.client?.sendSegment(this.sessionId, seg);
+      // redact PII on the copy that leaves the device; local keeps full text
+      this.client?.sendSegment(this.sessionId, { ...seg, text: redactPII(seg.text).text });
       this.seq++;
     }
   }

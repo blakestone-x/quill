@@ -82,6 +82,17 @@ describe('QuillDB', () => {
     expect(db.listExtractions('sess1', 'confirmed')).toHaveLength(1);
   });
 
+  it('keyword-searches segment text case-insensitively', () => {
+    const db = freshDb();
+    db.createSession(session);
+    db.addSegment({ ...seg('a', 'Call CBRE about the quote'), startedAt: 2000 });
+    db.addSegment({ ...seg('b', 'lunch was good'), startedAt: 1000 });
+    const hits = db.searchSegments('cbre');
+    expect(hits).toHaveLength(1);
+    expect(hits[0].text).toContain('CBRE');
+    expect(db.searchSegments('the')).not.toHaveLength(0);
+  });
+
   it('stores flags in order', () => {
     const db = freshDb();
     db.createSession(session);

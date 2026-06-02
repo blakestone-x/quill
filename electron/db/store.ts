@@ -149,6 +149,17 @@ export class QuillDB {
     return rows.map(toSegment);
   }
 
+  /** Keyword search across finalized transcript text (case-insensitive). */
+  searchSegments(query: string, limit = 50): TranscriptSegment[] {
+    const like = `%${query.replace(/[%_\\]/g, (m) => '\\' + m)}%`;
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM segments WHERE final = 1 AND text LIKE ? ESCAPE '\\' ORDER BY started_at DESC LIMIT ?"
+      )
+      .all(like, limit) as SegmentRow[];
+    return rows.map(toSegment);
+  }
+
   markSynced(ids: string[]): void {
     if (ids.length === 0) return;
     const stmt = this.db.prepare('UPDATE segments SET synced = 1 WHERE id = ?');

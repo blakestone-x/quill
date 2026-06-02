@@ -83,6 +83,8 @@ const api = {
       ipcRenderer.invoke('db:segment:list', sessionId) as Promise<TranscriptSegment[]>,
     unsyncedSegments: (limit?: number) =>
       ipcRenderer.invoke('db:segment:unsynced', limit) as Promise<TranscriptSegment[]>,
+    searchSegments: (query: string, limit?: number) =>
+      ipcRenderer.invoke('db:segment:search', query, limit) as Promise<TranscriptSegment[]>,
     markSynced: (ids: string[]) =>
       ipcRenderer.invoke('db:segment:markSynced', ids) as Promise<boolean>,
     addFlag: (f: SessionFlag) => ipcRenderer.invoke('db:flag:add', f) as Promise<boolean>,

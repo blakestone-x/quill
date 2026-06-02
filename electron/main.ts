@@ -375,6 +375,9 @@ ipcMain.handle('db:segment:list', (_e, sessionId: string) =>
 ipcMain.handle('db:segment:unsynced', (_e, limit?: number) =>
   quillDb ? quillDb.unsyncedSegments(limit) : []
 );
+ipcMain.handle('db:segment:search', (_e, query: string, limit?: number) =>
+  quillDb ? quillDb.searchSegments(query, limit) : []
+);
 ipcMain.handle('db:segment:markSynced', (_e, ids: string[]) => {
   if (!quillDb) return false;
   quillDb.markSynced(ids);

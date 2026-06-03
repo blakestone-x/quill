@@ -40,9 +40,15 @@ export const captureStore = createStore<CaptureState>()((set) => ({
   upsertSegment: (seg) =>
     set((st) => {
       const segs = st.segments.slice();
-      const last = segs.length - 1;
-      if (last >= 0 && !segs[last].final) segs[last] = seg;
-      else segs.push(seg);
+      // Key on segment id: a partial and its final share an id (replace in place);
+      // a new utterance has a new id (append). Never let a late partial overwrite
+      // a committed final.
+      const idx = segs.findIndex((s) => s.id === seg.id);
+      if (idx >= 0) {
+        if (!segs[idx].final || seg.final) segs[idx] = seg;
+      } else {
+        segs.push(seg);
+      }
       return { segments: segs };
     }),
   addFlag: (f) => set((st) => ({ flags: [...st.flags, f] })),

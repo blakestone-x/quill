@@ -27,9 +27,13 @@ function mk(type: VoiceIntentType, text: string, needsConfirmation: boolean, tar
 export function parseIntent(utterance: string): VoiceIntent {
   const u = utterance.trim();
   if (u.length === 0) return mk('unknown', '', true);
+  const wordCount = u.split(/\s+/).length;
 
-  if (/^(?:flag|mark|bookmark)\b/i.test(u)) return mk('flag', '', false);
-  if (/^(?:stop|end|done)\b/i.test(u)) return mk('stop', '', false);
+  // flag / stop are terse commands — require a short utterance so ordinary
+  // speech ("Mark from CBRE called about the quote", "done deal we ship Friday")
+  // doesn't trip them.
+  if (wordCount <= 3 && /^(?:flag|mark|bookmark)\b/i.test(u)) return mk('flag', '', false);
+  if (wordCount <= 2 && /^(?:stop|end|done)\b/i.test(u)) return mk('stop', '', false);
 
   let m = u.match(/^send (?:a )?message to (\w+)[\s:,-]*(.*)$/i);
   if (m) return mk('message', m[2].trim(), true, m[1]);
@@ -40,7 +44,8 @@ export function parseIntent(utterance: string): VoiceIntent {
   m = u.match(/^schedule (?:a |an )?(.*)$/i);
   if (m) return mk('schedule', m[1].trim(), true);
 
-  m = u.match(/^(?:take (?:a )?(?:priority )?note|priority note|note)[\s:,-]*(.*)$/i);
+  // bare "note" needs a word boundary (so "noted"/"notebook" don't match) and a body.
+  m = u.match(/^(?:take (?:a )?(?:priority )?note|priority note|note)\b[\s:,-]+(.*)$/i);
   if (m) return mk('note', m[1].trim(), false);
 
   return mk('unknown', u, true);

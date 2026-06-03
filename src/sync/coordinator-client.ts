@@ -81,6 +81,7 @@ export class CoordinatorClient {
         resolve();
       };
       ws.onerror = () => reject(new Error('coordinator connection failed'));
+      ws.onclose = () => this.stopHeartbeat(); // don't keep firing heartbeats into a dead socket
       ws.onmessage = (ev) => handleServerMessage(typeof ev.data === 'string' ? ev.data : '', this.opts);
       this.ws = ws;
     });

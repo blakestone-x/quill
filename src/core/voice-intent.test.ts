@@ -27,7 +27,15 @@ describe('parseIntent', () => {
   it('parses schedule, flag, and stop', () => {
     expect(parseIntent('schedule a site visit Tuesday').type).toBe('schedule');
     expect(parseIntent('flag').type).toBe('flag');
+    expect(parseIntent('flag this point').type).toBe('flag');
     expect(parseIntent('stop').type).toBe('stop');
+  });
+
+  it('does not let names/prose trip flag/stop/note (regression)', () => {
+    expect(parseIntent('Mark from CBRE called about the quote').type).not.toBe('flag');
+    expect(parseIntent('done deal we ship Friday').type).not.toBe('stop');
+    expect(parseIntent('noted that CBRE called').type).not.toBe('note');
+    expect(parseIntent('notebook plan for Q3').type).not.toBe('note');
   });
 
   it('falls back to unknown (with confirmation) for open commands', () => {

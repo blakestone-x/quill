@@ -94,6 +94,8 @@ export class CapturePipeline {
   }
 
   private promote(end: number, reason: ChunkWindow['reason']): void {
-    this.onChunk({ startedAt: this.segStart, endedAt: end, reason });
+    // Never emit a zero/negative-length window (can happen if speech ends exactly
+    // at a maxlen force-cut) — the caller would hand empty audio to STT.
+    if (end > this.segStart) this.onChunk({ startedAt: this.segStart, endedAt: end, reason });
   }
 }

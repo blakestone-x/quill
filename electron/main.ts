@@ -112,7 +112,18 @@ function atomicWrite(filePath: string, data: string): void {
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${basename(filePath)}.tmp-${process.pid}-${Date.now()}`);
   writeFileSync(tmp, data);
-  renameSync(tmp, filePath);
+  try {
+    renameSync(tmp, filePath);
+  } catch (e) {
+    // Windows can throw EPERM/EBUSY if AV/sync momentarily holds the target —
+    // don't leave the temp file littering the dir (incl. Cartograph memory).
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // ignore
+    }
+    throw e;
+  }
 }
 
 // One-time migration from legacy quill-data.json to v1 layout.
@@ -340,11 +351,16 @@ ipcMain.handle('bar:popout', () => {
 ipcMain.handle('bar:close', () => {
   if (barWindow && !barWindow.isDestroyed()) barWindow.close();
   barWindow = null;
-  if (mainWindow?.isMinimized()) mainWindow.restore();
-  mainWindow?.focus();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow(); // main was closed while popped out — don't strand a headless app
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
 });
 ipcMain.handle('bar:command', (_e, type: string) => {
-  mainWindow?.webContents.send('bar:command', type);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bar:command', type);
 });
 ipcMain.handle('capture:state', (_e, state: unknown) => {
   if (barWindow && !barWindow.isDestroyed()) barWindow.webContents.send('capture:state', state);
@@ -693,8 +709,8 @@ ipcMain.handle('updater:restart', () => {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   migrateFromLegacyIfNeeded();
+  initDb(); // before createWindow so the renderer's first db: IPC can't race a null store
   createWindow();
-  initDb();
 
   const registered = globalShortcut.register('CommandOrControl+Shift+Q', toggleMainWindow);
   if (!registered) console.warn('Failed to register global shortcut Ctrl+Shift+Q');

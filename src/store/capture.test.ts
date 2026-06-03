@@ -44,6 +44,15 @@ describe('captureStore', () => {
     expect(captureStore.getState().segments).toHaveLength(2);
   });
 
+  it('keys on id and never overwrites a committed final with a late partial (regression)', () => {
+    const s = captureStore.getState();
+    s.upsertSegment(seg('a', 'hello there', true)); // commit final
+    s.upsertSegment(seg('a', 'hel', false)); // late partial, same id, must NOT clobber
+    expect(captureStore.getState().segments).toHaveLength(1);
+    expect(captureStore.getState().segments[0].text).toBe('hello there');
+    expect(captureStore.getState().segments[0].final).toBe(true);
+  });
+
   it('records flags and resets cleanly', () => {
     const s = captureStore.getState();
     s.addFlag({ id: 'f1', sessionId: 'sess1', at: 100, note: 'important' });

@@ -11,8 +11,11 @@ export interface RedactionResult {
 const PATTERNS: Array<{ label: string; re: RegExp }> = [
   { label: 'email', re: /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g },
   { label: 'ssn', re: /\b\d{3}-\d{2}-\d{4}\b/g },
-  { label: 'card', re: /\b(?:\d{4}[ -]?){3}\d{4}\b/g },
-  { label: 'phone', re: /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g }
+  // 16-digit card starting 3-6 (Visa/MC/Amex/Discover prefixes) with optional
+  // space/dash groups — the [3-6] prefix avoids eating year lists like "2019 2020 2021 2022".
+  { label: 'card', re: /\b[3-6]\d{3}(?:[ -]?\d{4}){3}\b/g },
+  // phone: lookarounds (not \b) so a leading "+1" is consumed and we don't match mid-number.
+  { label: 'phone', re: /(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)/g }
 ];
 
 export function redactPII(input: string): RedactionResult {

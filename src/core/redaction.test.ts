@@ -9,6 +9,12 @@ describe('redactPII', () => {
     expect(redactPII('card 4111 1111 1111 1111').text).toBe('card [card]');
   });
 
+  it('consumes the +1 country code and ignores year lists (regression)', () => {
+    expect(redactPII('call +1 (555) 123-4567 now').text).toBe('call [phone] now');
+    expect(redactPII('+15551234567').text).toBe('[phone]');
+    expect(redactPII('in 2019 2020 2021 2022 we grew').text).toBe('in 2019 2020 2021 2022 we grew');
+  });
+
   it('leaves clean text untouched and reports zero', () => {
     const r = redactPII('send the quote to CBRE tomorrow');
     expect(r.text).toBe('send the quote to CBRE tomorrow');

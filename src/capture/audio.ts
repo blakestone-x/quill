@@ -40,39 +40,52 @@ export class AmbientCapture {
   }
 
   async start(): Promise<void> {
-    const mic = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-      video: false
-    });
-    this.streams.push(mic);
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        video: false
+      });
+      this.streams.push(mic);
 
-    let sys: MediaStream | null = null;
-    if (this.opts.captureSystemAudio) {
-      try {
-        // Windows loopback: getDisplayMedia rejects audio-only, so request video
-        // then immediately drop the video track.
-        const disp = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
-        disp.getVideoTracks().forEach((t) => t.stop());
-        sys = disp;
-        this.streams.push(disp);
-      } catch {
-        sys = null; // denied or unsupported -> mic only
+      let sys: MediaStream | null = null;
+      if (this.opts.captureSystemAudio) {
+        try {
+          // Windows loopback: getDisplayMedia rejects audio-only, so request video
+          // then immediately drop the video track.
+          const disp = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+          disp.getVideoTracks().forEach((t) => t.stop());
+          sys = disp;
+          this.streams.push(disp);
+        } catch {
+          sys = null; // denied or unsupported -> mic only
+        }
       }
+
+      const ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+      this.ctx = ctx;
+      const merger = ctx.createGain();
+      ctx.createMediaStreamSource(mic).connect(merger);
+      if (sys) ctx.createMediaStreamSource(sys).connect(merger);
+
+      const node = ctx.createScriptProcessor(FRAME_SIZE, 1, 1);
+      node.onaudioprocess = (e: AudioProcessingEvent) => this.onAudio(e.inputBuffer.getChannelData(0));
+      merger.connect(node);
+      // A ScriptProcessor only fires when connected downstream — but routing the
+      // captured mic+loopback to ctx.destination (speakers) would create a feedback
+      // howl. Sink it at zero gain instead.
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      node.connect(sink);
+      sink.connect(ctx.destination);
+      this.node = node;
+
+      await this.opts.transcriber.start(this.opts.onChunk);
+    } catch (e) {
+      // A failed start (e.g. sidecar not running) must not leave the mic hot or
+      // the context/loopback open.
+      await this.stop();
+      throw e;
     }
-
-    const ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
-    this.ctx = ctx;
-    const merger = ctx.createGain();
-    ctx.createMediaStreamSource(mic).connect(merger);
-    if (sys) ctx.createMediaStreamSource(sys).connect(merger);
-
-    const node = ctx.createScriptProcessor(FRAME_SIZE, 1, 1);
-    node.onaudioprocess = (e: AudioProcessingEvent) => this.onAudio(e.inputBuffer.getChannelData(0));
-    merger.connect(node);
-    node.connect(ctx.destination);
-    this.node = node;
-
-    await this.opts.transcriber.start(this.opts.onChunk);
   }
 
   private onAudio(input: Float32Array): void {

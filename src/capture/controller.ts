@@ -93,14 +93,16 @@ export class CaptureController {
   }
 
   async stop(): Promise<void> {
+    // Stop capture FIRST so the transcriber's final hypothesis flushes + syncs
+    // while the coordinator client is still open; then release the lock + close.
+    if (this.capture) {
+      await this.capture.stop();
+      this.capture = null;
+    }
     if (this.client) {
       this.client.releaseRecord();
       this.client.close();
       this.client = null;
-    }
-    if (this.capture) {
-      await this.capture.stop();
-      this.capture = null;
     }
     if (this.sessionId) {
       captureStore.getState().endSession();
@@ -140,8 +142,12 @@ export class CaptureController {
     captureStore.getState().upsertSegment(seg);
     if (c.final) {
       if (this.persist) void window.quill.db.addSegment(seg);
-      // redact PII on the copy that leaves the device; local keeps full text
-      this.client?.sendSegment(this.sessionId, { ...seg, text: redactPII(seg.text).text });
+      // Killswitch: when muted, send NOTHING off-device (the local copy is still
+      // kept). This stops finals buffered just before mute from leaking to the VPS.
+      if (!this.capture?.isMuted()) {
+        // redact PII on the copy that leaves the device; local keeps full text
+        this.client?.sendSegment(this.sessionId, { ...seg, text: redactPII(seg.text).text });
+      }
       this.seq++;
     }
   }

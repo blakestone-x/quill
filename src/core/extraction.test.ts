@@ -33,6 +33,12 @@ describe('isSalient', () => {
     expect(isSalient('haha')).toBe(false);
     expect(isSalient('that was a good lunch')).toBe(false);
   });
+
+  it('does not false-positive on substrings of task verbs (regression)', () => {
+    expect(isSalient('the border collie barked loudly')).toBe(false); // border != order
+    expect(isSalient('I recall that lunch was fine')).toBe(false); // recall != call
+    expect(isSalient('the design looks really nice')).toBe(false); // design != sign
+  });
 });
 
 describe('filterSalient', () => {

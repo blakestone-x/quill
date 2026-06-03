@@ -48,6 +48,15 @@ describe('CapturePipeline', () => {
     expect(chunks.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('never emits a zero-length window when speech ends at a maxlen cut (regression)', () => {
+    const chunks: ChunkWindow[] = [];
+    const p = new CapturePipeline((w) => chunks.push(w), { maxChunkMs: 1000, preRollMs: 0, silenceMs: 500 });
+    feed(p, 0, 11, 0.9); // speech 0..1000 — hits maxlen exactly at 1000
+    feed(p, 1100, 6, 0.1); // then silence
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.every((c) => c.endedAt > c.startedAt)).toBe(true);
+  });
+
   it('flush emits a pending open segment', () => {
     const chunks: ChunkWindow[] = [];
     const p = new CapturePipeline((w) => chunks.push(w), { silenceMs: 500 });

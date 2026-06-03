@@ -54,7 +54,30 @@ if (typeof window !== 'undefined' && typeof (window as any).quill === 'undefined
     revealUserData: async () => undefined,
     checkForUpdate: async () => ({ ok: false as const, reason: 'stub' }),
     restartToUpdate: async () => undefined,
-    onUpdaterStatus: () => () => undefined
+    onUpdaterStatus: () => () => undefined,
+    db: {
+      createSession: async () => false,
+      endSession: async () => false,
+      addSegment: async () => false,
+      listSegments: async () => [],
+      unsyncedSegments: async () => [],
+      markSynced: async () => false,
+      addFlag: async () => false,
+      listFlags: async () => [],
+      addExtraction: async () => false,
+      listExtractions: async () => [],
+      setExtractionStatus: async () => false,
+      logConsent: async () => false,
+      searchSegments: async () => []
+    },
+    bar: {
+      popout: async () => undefined,
+      close: async () => undefined,
+      command: async () => undefined,
+      onCommand: () => () => undefined,
+      sendState: async () => undefined,
+      onState: () => () => undefined
+    }
   } as unknown as typeof window.quill;
 }
 

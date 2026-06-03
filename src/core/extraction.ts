@@ -52,14 +52,20 @@ const TIME_REF =
 // Two or more consecutive capitalized words — a likely entity (person, company).
 const PROPER_NOUN = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/;
 
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Word-boundary alternations, not substring includes() — otherwise "recall"→call,
+// "border"→order, "design"→sign, "shipment"→ship all false-positive. Multi-word
+// phrases ("follow up", "we will") stay literal inside the alternation.
+const TASK_RE = new RegExp('\\b(?:' + TASK_VERBS.map(escapeRe).join('|') + ')\\b', 'i');
+const DECISION_RE = new RegExp('\\b(?:' + DECISION_WORDS.map(escapeRe).join('|') + ')\\b', 'i');
+
 export function isSalient(text: string): boolean {
   const t = text.trim();
   if (t.length < 8) return false;
-  const lower = t.toLowerCase();
-  if (TASK_VERBS.some((v) => lower.includes(v))) return true;
-  if (DECISION_WORDS.some((v) => lower.includes(v))) return true;
+  if (TASK_RE.test(t)) return true;
+  if (DECISION_RE.test(t)) return true;
   if (TIME_REF.test(t)) return true;
-  if (PROPER_NOUN.test(t) && /\?|\bneed\b|\bmust\b|\bshould\b/.test(lower)) return true;
+  if (PROPER_NOUN.test(t) && /\?|\bneed\b|\bmust\b|\bshould\b/i.test(t)) return true;
   return false;
 }
 
@@ -119,28 +125,22 @@ export function buildExtractionPrompt(segments: TranscriptSegment[]): string {
 
 /** Tolerant parser: LLMs wrap JSON in prose or code fences; grab the object. */
 export function parseExtractions(raw: string): ExtractionResult[] {
-  const json = extractJsonObject(raw);
-  if (!json) return [];
-  try {
-    const obj = JSON.parse(json) as { extractions?: unknown };
-    if (!obj || !Array.isArray(obj.extractions)) return [];
-    const out: ExtractionResult[] = [];
-    for (const e of obj.extractions) {
-      if (!e || typeof e !== 'object') continue;
-      const rec = e as Record<string, unknown>;
-      const kind = rec.kind;
-      if (!isExtractionKind(kind)) continue;
-      const confidence = typeof rec.confidence === 'number' ? clamp01(rec.confidence) : 0.5;
-      const payload: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(rec)) {
-        if (k !== 'kind' && k !== 'confidence') payload[k] = v;
-      }
-      out.push({ kind, payload, confidence });
+  const obj = findExtractionObject(raw);
+  if (!obj) return [];
+  const out: ExtractionResult[] = [];
+  for (const e of obj.extractions) {
+    if (!e || typeof e !== 'object') continue;
+    const rec = e as Record<string, unknown>;
+    const kind = rec.kind;
+    if (!isExtractionKind(kind)) continue;
+    const confidence = typeof rec.confidence === 'number' ? clamp01(rec.confidence) : 0.5;
+    const payload: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rec)) {
+      if (k !== 'kind' && k !== 'confidence') payload[k] = v;
     }
-    return out;
-  } catch {
-    return [];
+    out.push({ kind, payload, confidence });
   }
+  return out;
 }
 
 /** Full Layer-2 pass: drop noise, call the LLM only if anything survives. */
@@ -170,9 +170,30 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-function extractJsonObject(raw: string): string | null {
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start === -1 || end === -1 || end < start) return null;
-  return raw.slice(start, end + 1);
+// Scan balanced {...} objects, skipping stray prose braces, and return the first
+// that parses to an object with an `extractions` array.
+function findExtractionObject(raw: string): { extractions: unknown[] } | null {
+  const text = raw.replace(/```(?:json)?/gi, '');
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '{') continue;
+    let depth = 0;
+    for (let j = i; j < text.length; j++) {
+      if (text[j] === '{') depth++;
+      else if (text[j] === '}') {
+        depth--;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(text.slice(i, j + 1)) as { extractions?: unknown };
+            if (parsed && Array.isArray(parsed.extractions)) {
+              return parsed as { extractions: unknown[] };
+            }
+          } catch {
+            // not valid JSON, or not the object we want — try the next brace
+          }
+          break;
+        }
+      }
+    }
+  }
+  return null;
 }

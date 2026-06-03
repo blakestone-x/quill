@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Mic, MicOff, Square, Flag, Maximize2 } from 'lucide-react';
+import './fonts';
 import './index.css';
 
 // The floating bar — a tiny always-on-top remote. Capture runs in the main

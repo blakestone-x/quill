@@ -15,8 +15,20 @@ body,
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   /* Default: text selectable. Drag regions opt out explicitly. */
   user-select: text;
+}
+
+/* Keyboard-focus ring in the amber accent (mouse clicks stay ring-free). */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgba(220, 176, 90, 0.5);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 textarea,

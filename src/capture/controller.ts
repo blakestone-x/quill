@@ -120,11 +120,15 @@ export class CaptureController {
       engine: this.opts.engine,
       diarize: true
     };
+    const onStatus = (s: 'connected' | 'reconnecting' | 'failed') =>
+      captureStore
+        .getState()
+        .setConnection(s === 'connected' ? 'live' : s === 'reconnecting' ? 'reconnecting' : 'lost');
     if (this.opts.engine === 'deepgram') {
       if (!this.opts.deepgramKey) throw new Error('Deepgram API key required for cloud transcription');
-      return new DeepgramTranscriber(config, this.opts.deepgramKey);
+      return new DeepgramTranscriber(config, this.opts.deepgramKey, onStatus);
     }
-    return new SidecarTranscriber(config, this.opts.sidecarUrl);
+    return new SidecarTranscriber(config, this.opts.sidecarUrl, onStatus);
   }
 
   private onChunk(c: TranscriptChunk): void {

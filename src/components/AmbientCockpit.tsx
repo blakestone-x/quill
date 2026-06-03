@@ -20,6 +20,7 @@ export default function AmbientCockpit() {
   const [captureSystemAudio, setCaptureSystemAudio] = useState(true);
 
   const status = useCapture((s) => s.status);
+  const connection = useCapture((s) => s.connection);
   const segments = useCapture((s) => s.segments);
   const consentMode = useCapture((s) => s.consentMode);
   const ctrlRef = useRef<CaptureController | null>(null);
@@ -239,6 +240,16 @@ export default function AmbientCockpit() {
 
           {error && (
             <div className="rounded bg-red-500/10 p-1.5 text-[11px] text-red-300">{error}</div>
+          )}
+
+          {recording && connection !== 'live' && (
+            <div
+              className={`rounded p-1.5 text-[11px] ${connection === 'reconnecting' ? 'bg-amber-500/10 text-amber-300' : 'bg-red-500/10 text-red-300'}`}
+            >
+              {connection === 'reconnecting'
+                ? 'Reconnecting to the speech engine…'
+                : 'Speech engine lost — is the sidecar running?'}
+            </div>
           )}
 
           <div className="max-h-64 overflow-auto rounded bg-black/30 p-2 text-xs leading-relaxed">

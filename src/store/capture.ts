@@ -7,9 +7,11 @@ import type { CaptureSession, ConsentMode, SessionFlag, TranscriptSegment } from
 import { DEFAULT_CONSENT_MODE } from '../core/consent';
 
 export type RecorderStatus = 'idle' | 'recording' | 'paused' | 'muted';
+export type Connection = 'live' | 'reconnecting' | 'lost';
 
 export interface CaptureState {
   status: RecorderStatus;
+  connection: Connection;
   session: CaptureSession | null;
   segments: TranscriptSegment[];
   flags: SessionFlag[];
@@ -17,6 +19,7 @@ export interface CaptureState {
   startSession: (s: CaptureSession) => void;
   endSession: () => void;
   setStatus: (s: RecorderStatus) => void;
+  setConnection: (c: Connection) => void;
   /** Live partials replace the trailing partial; finals commit it (or append). */
   upsertSegment: (seg: TranscriptSegment) => void;
   addFlag: (f: SessionFlag) => void;
@@ -26,6 +29,7 @@ export interface CaptureState {
 
 const initial = {
   status: 'idle' as RecorderStatus,
+  connection: 'live' as Connection,
   session: null as CaptureSession | null,
   segments: [] as TranscriptSegment[],
   flags: [] as SessionFlag[],
@@ -34,9 +38,11 @@ const initial = {
 
 export const captureStore = createStore<CaptureState>()((set) => ({
   ...initial,
-  startSession: (s) => set({ session: s, status: 'recording', segments: [], flags: [] }),
+  startSession: (s) =>
+    set({ session: s, status: 'recording', connection: 'live', segments: [], flags: [] }),
   endSession: () => set({ status: 'idle' }),
   setStatus: (status) => set({ status }),
+  setConnection: (connection) => set({ connection }),
   upsertSegment: (seg) =>
     set((st) => {
       const segs = st.segments.slice();

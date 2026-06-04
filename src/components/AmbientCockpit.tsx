@@ -121,7 +121,7 @@ export default function AmbientCockpit() {
       </button>
 
       {open && (
-        <div className="no-drag fixed bottom-14 right-3 z-50 flex w-80 flex-col gap-2 rounded-lg border border-white/10 bg-[#13100d] p-3 text-white shadow-2xl">
+        <div className="no-drag elev fixed bottom-14 right-3 z-50 flex w-80 flex-col gap-2 rounded-lg border border-white/10 bg-[#13100d] p-3 text-white">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#dcb05a]">Ambient cockpit</span>
             <div className="flex items-center gap-2">

@@ -22,7 +22,7 @@ function Bar() {
   const send = (type: string) => window.quill?.bar?.command(type);
 
   return (
-    <div className="drag-region flex h-[52px] w-full items-center gap-2 rounded-lg bg-[#13100d]/95 px-3 text-white">
+    <div className="drag-region elev flex h-[52px] w-full items-center gap-2 rounded-lg bg-[#13100d]/95 px-3 text-white">
       <span className="text-xs font-semibold text-[#dcb05a]">Quill</span>
       <span
         className={`h-2 w-2 rounded-full ${status !== 'idle' && !muted ? 'bg-red-500' : 'bg-white/30'}`}

@@ -14,27 +14,6 @@ export interface StreamHandlers {
   signal?: AbortSignal;
 }
 
-export async function chat(
-  apiKey: string,
-  messages: ChatMessage[],
-  system: string,
-  model: string = DEFAULT_MODEL
-): Promise<string> {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-  const response = await client.messages.create({
-    model,
-    max_tokens: 1024,
-    system,
-    messages
-  });
-
-  const parts = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text);
-
-  return parts.join('\n').trim();
-}
-
 export async function streamChat(
   apiKey: string,
   messages: ChatMessage[],

@@ -7,10 +7,6 @@ export interface PushResult {
   reason?: string;
 }
 
-export async function isCartographAvailable(): Promise<boolean> {
-  return window.quill.cartographAvailable();
-}
-
 export async function pushNoteLive(note: Note, agentMessages: ChatMessage[]): Promise<PushResult> {
   if (!note.cartographSync || note.cartographSync === 'off') return { ok: true };
   const body =

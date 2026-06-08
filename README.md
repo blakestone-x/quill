@@ -35,7 +35,7 @@ npm run dev         # hot-reload dev mode
 npm run dist:win
 ```
 
-Installer drops at `release/Quill-Setup-0.1.0.exe`. Run once, then right-click its taskbar icon → **Pin to taskbar**.
+Installer drops at `release/Quill-Setup-1.2.0.exe`. Run once, then right-click its taskbar icon → **Pin to taskbar**.
 
 ## Storage
 

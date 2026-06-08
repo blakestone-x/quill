@@ -1,107 +1,48 @@
-﻿name: CI
+name: CI
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-      - master
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
 
-# Based on workspace config/ci-templates/node-app.yml.
-env:
-  NODE_VERSION: "22.x"
-  PACKAGE_MANAGER: "npm"
-  WORKING_DIRECTORY: "."
-  INSTALL_COMMAND: ""
-  LINT_COMMAND: ""
-  TYPECHECK_COMMAND: "npm run typecheck --if-present"
-  TEST_COMMAND: ""
-  BUILD_COMMAND: "npm run build --if-present"
-  AUDIT_COMMAND: "npm audit --audit-level=high"
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ci:
-    name: Lint, typecheck, test, build
+  build:
+    name: Typecheck & build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-        working-directory: ${{ env.WORKING_DIRECTORY }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "22.x"
+          cache: npm
 
-      - name: Enable pnpm
-        if: env.PACKAGE_MANAGER == 'pnpm'
-        run: corepack enable
-
-      - name: Install dependencies
-        run: |
-          set -euo pipefail
-          if [ -n "$INSTALL_COMMAND" ]; then
-            eval "$INSTALL_COMMAND"
-            exit 0
-          fi
-
-          if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
-            pnpm install --frozen-lockfile
-          elif [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-
-      - name: Lint
-        run: |
-          set -euo pipefail
-          if [ -n "$LINT_COMMAND" ]; then
-            eval "$LINT_COMMAND"
-          else
-            echo "No lint command configured."
-          fi
+      - name: Install
+        run: npm ci
 
       - name: Typecheck
-        run: |
-          set -euo pipefail
-          if [ -n "$TYPECHECK_COMMAND" ]; then
-            eval "$TYPECHECK_COMMAND"
-          else
-            echo "No typecheck command configured."
-          fi
-
-      - name: Test
-        run: |
-          set -euo pipefail
-          if [ -n "$TEST_COMMAND" ]; then
-            eval "$TEST_COMMAND"
-          else
-            echo "No test command configured."
-          fi
+        run: npm run typecheck
 
       - name: Build
-        run: |
-          set -euo pipefail
-          if [ -n "$BUILD_COMMAND" ]; then
-            eval "$BUILD_COMMAND"
-          else
-            echo "No build command configured."
-          fi
+        run: npm run build
 
-      - name: Security audit
+  audit:
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+      - run: npm ci
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high
         continue-on-error: true
-        run: |
-          set -euo pipefail
-          if [ -n "$AUDIT_COMMAND" ]; then
-            eval "$AUDIT_COMMAND"
-          else
-            echo "No audit command configured."
-          fi

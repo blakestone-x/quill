@@ -33,7 +33,7 @@ export default function StartScreen({
             <span className="font-mono text-paper-200">Ctrl+F</span> to search everything.
             {cartographAvailable && (
               <span className="block mt-1 text-amber-400/80">
-                Cartograph connected — context flows both ways.
+                Cartograph connected. Live-sync is available from the title bar.
               </span>
             )}
           </p>

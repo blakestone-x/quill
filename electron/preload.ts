@@ -23,19 +23,6 @@ export interface CartographLivePayload {
   frontmatter?: Record<string, unknown>;
 }
 
-export interface GatherContextPayload {
-  title: string;
-  tags?: string[];
-  body?: string;
-  maxChars?: number;
-}
-
-export interface GatherContextResult {
-  ok: true;
-  context: string;
-  sources: string[];
-}
-
 const api = {
   // window
   minimize: () => ipcRenderer.invoke('window:minimize'),
@@ -72,8 +59,6 @@ const api = {
     ipcRenderer.invoke('cartograph:push-live', payload) as Promise<{ ok: boolean; path?: string; reason?: string }>,
   cartographUnlinkLive: (noteId: string) =>
     ipcRenderer.invoke('cartograph:unlink-live', noteId) as Promise<{ ok: boolean; reason?: string }>,
-  gatherContext: (payload: GatherContextPayload) =>
-    ipcRenderer.invoke('context:gather', payload) as Promise<GatherContextResult>,
 
   // shell
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),

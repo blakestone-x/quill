@@ -18,21 +18,17 @@ import type { ChatMessage } from './lib/agent';
 import * as storage from './lib/storage';
 import { pushNoteAsSessionLog, pushNoteAsTemplate, pushNoteLive, unlinkLive } from './lib/cartograph';
 
-const WELCOME = `Welcome to Quill v1.1.
+const WELCOME = `Welcome to Quill.
 
 Every note is stored as a standalone .md file in %APPDATA%\\Quill\\notes.
 
-New in v1.1:
-  · **Title works.** Click the title field up top and type — it stays focused whether you're on the start screen or an active note.
-  · **Live Cartograph sync.** Database icon → pick "Live as session" or "Live as template" to make this note auto-save into Cartograph on every change. Amber dot on the tab means live-sync is on.
-  · **Agent gets wider context.** When you ask the agent something, Quill auto-injects your CLAUDE.md (global + workspace), Claude's memory index, and up to 5 relevant Cartograph working-tier excerpts into the system prompt. The agent cites which source it used. A small "+N" badge in the agent panel header shows how many external sources were pulled.
-
 Quick tour:
-  · Pin (top bar) keeps Quill floating. Ctrl+Shift+Q summons from anywhere.
+  · Pin (top bar) keeps Quill floating over other apps. Ctrl+Shift+Q summons it from anywhere.
   · Three layouts: vertical, horizontal, 2x2 grid. Drag tabs to edges to split.
   · Right-click a tab for colors + pin. Pinned tabs stick left.
   · Inline math: type "150+200+50=" and it resolves to "= 400".
   · Ctrl+F searches notes and agent history together.
+  · Agent panel (Ctrl+K): paste your own Anthropic API key, then ask about the active note.
 
 Shortcuts:
   Ctrl+N new note   Ctrl+W close   Ctrl+\\ vsplit   Ctrl+- hsplit   Ctrl+G grid
@@ -164,16 +160,27 @@ export default function App() {
     return () => clearTimeout(t);
   }, [panes, layout, vRatio, hRatio, agentWidth]);
 
-  const queueWriteNote = useCallback((note: Note) => {
-    const queue = writeQueueRef.current;
-    const existing = queue.get(note.id);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      storage.writeNote(note).catch((e) => console.error('writeNote failed', e));
-      queue.delete(note.id);
-    }, 300);
-    queue.set(note.id, timer);
+  const flashToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
   }, []);
+
+  const queueWriteNote = useCallback(
+    (note: Note) => {
+      const queue = writeQueueRef.current;
+      const existing = queue.get(note.id);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        storage.writeNote(note).catch((e) => {
+          console.error('writeNote failed', e);
+          flashToast(`Autosave failed: ${e instanceof Error ? e.message : String(e)}`);
+        });
+        queue.delete(note.id);
+      }, 300);
+      queue.set(note.id, timer);
+    },
+    [flashToast]
+  );
 
   const queueWriteAgentLog = useCallback(
     (noteId: string, noteTitle: string, messages: ChatMessage[]) => {
@@ -181,14 +188,15 @@ export default function App() {
       const existing = queue.get(noteId);
       if (existing) clearTimeout(existing);
       const timer = setTimeout(() => {
-        storage.writeAgentLog(noteId, noteTitle, messages).catch((e) =>
-          console.error('writeAgentLog failed', e)
-        );
+        storage.writeAgentLog(noteId, noteTitle, messages).catch((e) => {
+          console.error('writeAgentLog failed', e);
+          flashToast(`Agent log save failed: ${e instanceof Error ? e.message : String(e)}`);
+        });
         queue.delete(noteId);
       }, 400);
       queue.set(noteId, timer);
     },
-    []
+    [flashToast]
   );
 
   const queueLiveSync = useCallback((noteId: string) => {
@@ -297,7 +305,7 @@ export default function App() {
         flashToast(`Live-syncing as ${mode} → Cartograph`);
       }
     },
-    [panes, queueWriteNote, queueLiveSync]
+    [panes, queueWriteNote, queueLiveSync, flashToast]
   );
 
   const deleteNoteGlobal = useCallback((noteId: string) => {
@@ -628,11 +636,6 @@ export default function App() {
     [queueWriteAgentLog]
   );
 
-  const flashToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3500);
-  };
-
   const pushSession = useCallback(async () => {
     const first = panes[0];
     const noteId = first?.activeNoteId;
@@ -641,7 +644,7 @@ export default function App() {
     if (!note) return;
     const result = await pushNoteAsSessionLog(note, agentHistory[note.id] ?? []);
     flashToast(result.ok ? `Pushed to Cartograph working tier` : `Push failed: ${result.reason}`);
-  }, [panes, notes, agentHistory]);
+  }, [panes, notes, agentHistory, flashToast]);
 
   const pushTemplate = useCallback(async () => {
     const first = panes[0];
@@ -651,7 +654,7 @@ export default function App() {
     if (!note) return;
     const result = await pushNoteAsTemplate(note);
     flashToast(result.ok ? `Saved template to procedural tier` : `Save failed: ${result.reason}`);
-  }, [panes, notes]);
+  }, [panes, notes, flashToast]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -772,7 +775,6 @@ export default function App() {
             onResize={setAgentWidth}
             context={activeNote.content}
             contextTitle={activeNote.title}
-            contextTags={activeNote.tags ?? []}
             messages={activeMessages}
             onChangeMessages={(updater) => updateAgentMessages(activeNote.id, updater)}
             onClearMessages={() => clearAgentMessages(activeNote.id)}

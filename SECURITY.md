@@ -3,7 +3,8 @@
 Quill is a local desktop app. Notes are stored on your own machine
 (`%APPDATA%/Quill` on Windows) and nothing is transmitted off-device except the
 content you explicitly send to the agent panel, which goes to Anthropic under
-your own API key.
+your own API key. The API key is stored in plaintext in
+`%APPDATA%/Quill/settings.json`; treat that folder as sensitive.
 
 ## Reporting a vulnerability
 

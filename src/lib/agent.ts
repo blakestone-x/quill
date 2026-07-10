@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** Millisecond timestamp of when the message was created. Local only. */
+  ts?: number;
 }
 
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -29,7 +31,8 @@ export async function streamChat(
         model,
         max_tokens: 2048,
         system,
-        messages
+        // The API accepts role + content only; drop local-only fields like ts.
+        messages: messages.map((m) => ({ role: m.role, content: m.content }))
       },
       { signal: handlers.signal }
     );
@@ -48,43 +51,12 @@ export async function streamChat(
   }
 }
 
-export interface ContextBundle {
-  noteTitle: string;
-  noteBody: string;
-  extra: string;
-  sources: string[];
-}
+export function buildSystemPrompt(noteTitle: string, noteBody: string): string {
+  const base = `You are an assistant embedded in Quill, a desktop notepad. The user's active note is below. Be direct and concise; keep answers short and skimmable. Don't repeat the note back unless asked.`;
 
-export async function gatherAgentContext(
-  noteTitle: string,
-  noteBody: string,
-  tags: string[] = []
-): Promise<ContextBundle> {
-  try {
-    const result = await window.quill.gatherContext({ title: noteTitle, tags, body: noteBody });
-    return {
-      noteTitle,
-      noteBody,
-      extra: result?.context ?? '',
-      sources: result?.sources ?? []
-    };
-  } catch {
-    return { noteTitle, noteBody, extra: '', sources: [] };
-  }
-}
-
-export function buildSystemPrompt(bundle: ContextBundle): string {
-  const base = `You are an assistant embedded in Quill, a notepad used for multi-person note-taking. You have access to the user's active note and, when relevant, supplementary context from Cartograph (their personal memory system) and their CLAUDE.md files (their Claude Code instructions). Be direct and concise — match the terseness of a dispatcher's notes. Don't repeat the note back unless asked. When you use external context, briefly cite which source (e.g. "from CLAUDE.md" or "from cartograph working tier").`;
-
-  const noteBlock = `<active_note title=${JSON.stringify(bundle.noteTitle || 'Untitled')}>
-${bundle.noteBody || '(empty)'}
+  const noteBlock = `<active_note title=${JSON.stringify(noteTitle || 'Untitled')}>
+${noteBody || '(empty)'}
 </active_note>`;
 
-  const parts = [base, noteBlock];
-  if (bundle.extra) {
-    parts.push(
-      `<external_context>\nThe following context was auto-gathered based on the note title/tags. Use it when relevant — ignore if not.\n\n${bundle.extra}\n</external_context>`
-    );
-  }
-  return parts.join('\n\n');
+  return [base, noteBlock].join('\n\n');
 }

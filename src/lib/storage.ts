@@ -84,24 +84,39 @@ const MSG_HEADING = /^## (.+?) — (user|agent)(?:\s*\(([^)]+)\))?$/;
 export function parseAgentLog(body: string): ChatMessage[] {
   const lines = body.split('\n');
   const messages: ChatMessage[] = [];
-  let current: { role: 'user' | 'assistant'; content: string[] } | null = null;
+  let current: { role: 'user' | 'assistant'; content: string[]; ts?: number } | null = null;
   for (const line of lines) {
     const m = line.match(MSG_HEADING);
     if (m) {
-      if (current) messages.push({ role: current.role, content: current.content.join('\n').trim() });
-      current = { role: m[2] === 'user' ? 'user' : 'assistant', content: [] };
+      if (current) messages.push(finishMessage(current));
+      const parsed = Date.parse(m[1]);
+      current = {
+        role: m[2] === 'user' ? 'user' : 'assistant',
+        content: [],
+        ts: isNaN(parsed) ? undefined : parsed
+      };
     } else if (current) {
       current.content.push(line);
     }
   }
-  if (current) messages.push({ role: current.role, content: current.content.join('\n').trim() });
+  if (current) messages.push(finishMessage(current));
   return messages.filter((m) => m.content.length > 0);
+}
+
+function finishMessage(current: {
+  role: 'user' | 'assistant';
+  content: string[];
+  ts?: number;
+}): ChatMessage {
+  return { role: current.role, content: current.content.join('\n').trim(), ts: current.ts };
 }
 
 export function serializeAgentLog(messages: ChatMessage[]): string {
   const parts: string[] = [];
   for (const m of messages) {
-    const stamp = new Date().toISOString();
+    // Preserve each message's own timestamp so on-disk headers reflect when
+    // the message was sent, not when the log was last rewritten.
+    const stamp = new Date(m.ts ?? Date.now()).toISOString();
     const header = m.role === 'user' ? `## ${stamp} — user` : `## ${stamp} — agent`;
     parts.push(header, '', m.content, '');
   }

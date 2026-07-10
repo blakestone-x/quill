@@ -40,7 +40,6 @@ if (typeof window !== 'undefined' && typeof (window as any).quill === 'undefined
     cartographPush: async () => ({ ok: false as const, reason: 'stub' }),
     cartographPushLive: async () => ({ ok: false as const, reason: 'stub' }),
     cartographUnlinkLive: async () => ({ ok: true as const }),
-    gatherContext: async () => ({ ok: true as const, context: '', sources: [] }),
     minimize: async () => undefined,
     maximizeToggle: async () => undefined,
     close: async () => undefined,

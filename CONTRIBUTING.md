@@ -20,7 +20,7 @@ npm run dev        # electron-vite dev, hot reload
 | `npm run dev` | Run the app in dev mode with hot reload (`electron-vite dev`). |
 | `npm run typecheck` | Type-check without emitting (`tsc --noEmit`). |
 | `npm run build` | Bundle main, preload, and renderer (`electron-vite build`). |
-| `npm run dist:win` | Build and package a Windows installer (`electron-builder --win`). |
+| `npm run dist:win` | Build and package a Windows installer (`electron-builder --win`). The installer step needs Windows Developer Mode or an elevated shell (symlink privilege). |
 
 `npm run typecheck` and `npm run build` are what CI runs on every push and PR.
 

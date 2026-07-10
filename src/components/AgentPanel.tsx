@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Key, Send, Sparkles, StopCircle, Trash2, X } from 'lucide-react';
 import clsx from 'clsx';
-import {
-  buildSystemPrompt,
-  gatherAgentContext,
-  streamChat,
-  DEFAULT_MODEL,
-  type ChatMessage
-} from '../lib/agent';
+import { buildSystemPrompt, streamChat, DEFAULT_MODEL, type ChatMessage } from '../lib/agent';
 
 interface Props {
   context: string;
   contextTitle: string;
-  contextTags?: string[];
   messages: ChatMessage[];
   onChangeMessages: (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
   onClearMessages: () => void;
@@ -24,7 +17,6 @@ interface Props {
 export default function AgentPanel({
   context,
   contextTitle,
-  contextTags = [],
   messages,
   onChangeMessages,
   onClearMessages,
@@ -32,7 +24,6 @@ export default function AgentPanel({
   onResize,
   onClose
 }: Props) {
-  const [contextSourceCount, setContextSourceCount] = useState(0);
   const [apiKey, setApiKey] = useState('');
   const [keyLoaded, setKeyLoaded] = useState(false);
   const [input, setInput] = useState('');
@@ -87,8 +78,8 @@ export default function AgentPanel({
   const send = async () => {
     const prompt = input.trim();
     if (!prompt || !apiKey || busy) return;
-    const userMsg: ChatMessage = { role: 'user', content: prompt };
-    onChangeMessages((prev) => [...prev, userMsg, { role: 'assistant', content: '' }]);
+    const userMsg: ChatMessage = { role: 'user', content: prompt, ts: Date.now() };
+    onChangeMessages((prev) => [...prev, userMsg, { role: 'assistant', content: '', ts: Date.now() }]);
     setInput('');
     setBusy(true);
     setError(null);
@@ -96,9 +87,7 @@ export default function AgentPanel({
     const controller = new AbortController();
     abortRef.current = controller;
     const priorMessages = [...messages, userMsg];
-    const bundle = await gatherAgentContext(contextTitle, context, contextTags);
-    setContextSourceCount(bundle.sources.length);
-    const system = buildSystemPrompt(bundle);
+    const system = buildSystemPrompt(contextTitle, context);
 
     await streamChat(apiKey, priorMessages, system, {
       signal: controller.signal,
@@ -148,14 +137,6 @@ export default function AgentPanel({
             />
             <span className="font-mono text-paper-200 tracking-[0.18em]">AGENT</span>
             <span className="text-paper-300 font-mono text-[10px]">{DEFAULT_MODEL}</span>
-            {contextSourceCount > 0 && (
-              <span
-                className="text-amber-400/80 font-mono text-[9px]"
-                title="External sources pulled into context (CLAUDE.md, Cartograph, memory)"
-              >
-                +{contextSourceCount}
-              </span>
-            )}
           </div>
           <button
             type="button"
